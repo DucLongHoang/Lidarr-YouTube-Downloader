@@ -1834,8 +1834,7 @@
 
         .ft-result-item {
             display: flex;
-            align-items: center;
-            gap: 0.6rem;
+            flex-direction: column;
             padding: 0.6rem;
             border-radius: 8px;
             transition: all 0.2s;
@@ -1847,12 +1846,60 @@
             border-color: var(--border-glass);
         }
 
+        .ft-result-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
         .ft-result-item img {
             width: 48px;
             height: 36px;
             border-radius: 4px;
             object-fit: cover;
             flex-shrink: 0;
+        }
+
+        .ft-inline-preview {
+            display: none;
+            margin-top: 0.5rem;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #000;
+            position: relative;
+        }
+
+        .ft-inline-preview iframe {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border: none;
+            display: block;
+        }
+
+        .ft-yt-music-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.2rem;
+            font-size: 0.68rem;
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            background: rgba(255, 70, 70, 0.15);
+            color: #ff4646;
+            font-weight: 700;
+            margin-right: 0.3rem;
+        }
+
+        .ft-yt-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.2rem;
+            font-size: 0.68rem;
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            background: rgba(150, 150, 150, 0.1);
+            color: var(--text-dim);
+            font-weight: 600;
+            margin-right: 0.3rem;
         }
 
         .ft-result-info {
@@ -1912,21 +1959,6 @@
         .ft-result-select:hover {
             background: var(--primary);
             color: white;
-        }
-
-        .ft-video-preview {
-            margin-top: 0.75rem;
-            border-radius: 10px;
-            overflow: hidden;
-            position: relative;
-            background: #000;
-        }
-
-        .ft-video-preview iframe {
-            width: 100%;
-            aspect-ratio: 16 / 9;
-            border: none;
-            display: block;
         }
 
         .ft-preview-close {
@@ -2258,6 +2290,19 @@
 
             loadAlbums();
             startGlobalPolling();
+
+            /* Restore failed-track button if there are pending failed tracks from a previous session */
+            (async () => {
+                try {
+                    const res = await fetch('/api/download/failed');
+                    const data = await res.json();
+                    if (data.failed_tracks && data.failed_tracks.length > 0) {
+                        const openOverlay = new URLSearchParams(window.location.search).get('retry') === '1';
+                        showFailedTracksOverlay(data, openOverlay);
+                        if (openOverlay) history.replaceState(null, '', window.location.pathname);
+                    }
+                } catch (_) {}
+            })();
         });
 
         function toggleTheme() {
@@ -2679,16 +2724,19 @@
             if (!confirm(`Add ${filtered.length} albums to download queue?`)) return;
 
             btn.classList.add('btn-adding');
-            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Adding 0/${filtered.length}...`;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Adding ${filtered.length}...`;
 
             let added = 0;
-            for (const album of filtered) {
-                try {
-                    await fetch('/api/download/' + album.id, { method: 'POST' });
-                    added++;
-                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Adding ${added}/${filtered.length}...`;
-                } catch (e) {}
-            }
+            try {
+                const albumIds = filtered.map(a => a.id);
+                const res = await fetch('/api/download/queue/bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ album_ids: albumIds })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) added = data.added;
+            } catch (e) {}
 
             btn.classList.remove('btn-adding');
             btn.classList.add('btn-added');
@@ -2884,19 +2932,19 @@
             }
         }
 
-        async function checkFailedTracks() {
+        async function checkFailedTracks(autoOpen = true) {
             try {
                 const res = await fetch('/api/download/failed');
                 const data = await res.json();
                 if (data.failed_tracks && data.failed_tracks.length > 0) {
-                    showFailedTracksOverlay(data);
+                    showFailedTracksOverlay(data, autoOpen);
                 }
             } catch (e) {
                 console.error('Failed to check failed tracks:', e);
             }
         }
 
-        function showFailedTracksOverlay(data) {
+        function showFailedTracksOverlay(data, openModal = true) {
             failedTracksData = data.failed_tracks;
             document.getElementById('failedAlbumTitle').textContent = data.album_title || 'Unknown Album';
             document.getElementById('failedArtistName').textContent = data.artist_name || 'Unknown Artist';
@@ -2925,27 +2973,28 @@
                         <div class="failed-track-reason">${escapeHtml(track.reason)}</div>
                     </div>
                     <div class="failed-track-inputs" id="failedSearchRow${i}">
-                        <input type="text" id="failedSearch${i}" placeholder="Search YouTube..."
+                        <input type="text" id="failedSearch${i}" placeholder="Search YouTube Music..."
                             value="${escapeHtml((data.artist_name || '') + ' ' + track.title)}"
                             onkeydown="if(event.key==='Enter')searchFailedTrack(${i})">
                         <button class="ft-btn" onclick="searchFailedTrack(${i})">
                             <i class="fa-solid fa-search"></i> Search
                         </button>
                     </div>
-                    <div class="failed-track-separator">or paste a YouTube URL</div>
+                    <div class="failed-track-separator">or paste a YouTube / YouTube Music URL</div>
                     <div class="failed-track-inputs" id="failedUrlRow${i}">
-                        <input type="text" id="failedUrl${i}" placeholder="https://youtube.com/watch?v=..."
+                        <input type="text" id="failedUrl${i}" placeholder="https://music.youtube.com/watch?v=... or youtube.com/watch?v=..."
                             onkeydown="if(event.key==='Enter')manualDownloadTrack(${i})">
                         <button class="ft-btn" onclick="manualDownloadTrack(${i})">
                             <i class="fa-solid fa-download"></i> Download
                         </button>
                     </div>
                     <div class="ft-search-results" id="searchResults${i}"></div>
-                    <div class="ft-video-preview" id="videoPreview${i}" style="display:none;"></div>
                 </div>
             `).join('');
 
-            document.getElementById('failedOverlay').classList.add('active');
+            if (openModal) {
+                document.getElementById('failedOverlay').classList.add('active');
+            }
 
             /* Show reopen button & update count */
             const failedBtn = document.getElementById('failedTracksBtn');
@@ -2956,10 +3005,13 @@
 
         function closeFailedOverlay() {
             document.getElementById('failedOverlay').classList.remove('active');
-            /* Close any open video previews */
-            document.querySelectorAll('.ft-video-preview').forEach(el => {
+            /* Close any open inline previews */
+            document.querySelectorAll('.ft-inline-preview').forEach(el => {
                 el.style.display = 'none';
                 el.innerHTML = '';
+            });
+            document.querySelectorAll('.ft-result-preview i').forEach(i => {
+                i.className = 'fa-solid fa-play';
             });
         }
 
@@ -2969,7 +3021,7 @@
 
             const resultsDiv = document.getElementById(`searchResults${index}`);
             resultsDiv.classList.add('active');
-            resultsDiv.innerHTML = '<div class="ft-loading"><i class="fa-solid fa-spinner fa-spin"></i> Searching YouTube...</div>';
+            resultsDiv.innerHTML = '<div class="ft-loading"><i class="fa-solid fa-spinner fa-spin"></i> Searching YouTube Music...</div>';
 
             try {
                 const res = await fetch('/api/youtube/search', {
@@ -2985,17 +3037,23 @@
                         const thumbHtml = r.thumbnail
                             ? `<img src="${r.thumbnail}" alt="">`
                             : `<div style="width:48px;height:36px;background:var(--surface);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-brands fa-youtube" style="color:var(--text-dim);"></i></div>`;
+                        const sourceBadge = r.source === 'youtube_music'
+                            ? `<span class="ft-yt-music-badge"><i class="fa-brands fa-youtube"></i> Music</span>`
+                            : `<span class="ft-yt-badge"><i class="fa-brands fa-youtube"></i> YouTube</span>`;
                         return `
                             <div class="ft-result-item" data-url="${escapeHtml(r.url)}">
-                                ${thumbHtml}
-                                <div class="ft-result-info">
-                                    <div class="ft-result-title">${escapeHtml(r.title)}</div>
-                                    <div class="ft-result-meta">${escapeHtml(r.channel)}${dur ? ' &bull; ' + dur : ''}</div>
+                                <div class="ft-result-row">
+                                    ${thumbHtml}
+                                    <div class="ft-result-info">
+                                        <div class="ft-result-title">${escapeHtml(r.title)}</div>
+                                        <div class="ft-result-meta">${sourceBadge}${escapeHtml(r.channel)}${dur ? ' &bull; ' + dur : ''}</div>
+                                    </div>
+                                    <button class="ft-result-preview" onclick="event.stopPropagation();inlinePreview(this)" title="Preview">
+                                        <i class="fa-solid fa-play"></i>
+                                    </button>
+                                    <button class="ft-result-select" onclick="selectSearchResult(${index}, this.closest('.ft-result-item'))">Select</button>
                                 </div>
-                                <button class="ft-result-preview" onclick="event.stopPropagation();previewVideo(${index}, this.parentElement.dataset.url)" title="Preview">
-                                    <i class="fa-solid fa-play"></i>
-                                </button>
-                                <button class="ft-result-select" onclick="selectSearchResult(${index}, this.parentElement)">Select</button>
+                                <div class="ft-inline-preview"></div>
                             </div>
                         `;
                     }).join('');
@@ -3011,9 +3069,9 @@
             const url = el.dataset.url;
             document.getElementById(`failedUrl${index}`).value = url;
             document.getElementById(`searchResults${index}`).classList.remove('active');
-            /* Close video preview if open */
-            const preview = document.getElementById(`videoPreview${index}`);
-            if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+            /* Close any open inline preview */
+            document.querySelectorAll('.ft-inline-preview').forEach(p => { p.style.display = 'none'; p.innerHTML = ''; });
+            document.querySelectorAll('.ft-result-preview i').forEach(i => { i.className = 'fa-solid fa-play'; });
         }
 
         async function manualDownloadTrack(index) {
@@ -3028,8 +3086,8 @@
             }
 
             const item = document.getElementById(`failedTrack${index}`);
-            const inputElements = item.querySelectorAll('.failed-track-inputs, .failed-track-separator, .ft-search-results, .ft-video-preview');
-            inputElements.forEach(el => { el.style.display = 'none'; if (el.classList.contains('ft-video-preview')) el.innerHTML = ''; });
+            const inputElements = item.querySelectorAll('.failed-track-inputs, .failed-track-separator, .ft-search-results, .ft-inline-preview');
+            inputElements.forEach(el => { el.style.display = 'none'; if (el.classList.contains('ft-inline-preview')) el.innerHTML = ''; });
 
             const loadingDiv = document.createElement('div');
             loadingDiv.className = 'ft-loading';
@@ -3084,37 +3142,44 @@
             return null;
         }
 
-        function previewVideo(index, url) {
-            const container = document.getElementById(`videoPreview${index}`);
-            if (!container) return;
+        function inlinePreview(btn) {
+            const item = btn.closest('.ft-result-item');
+            if (!item) return;
+            const url = item.dataset.url;
+            const previewDiv = item.querySelector('.ft-inline-preview');
+            if (!previewDiv) return;
 
-            /* Toggle off if same video already shown */
-            if (container.style.display !== 'none' && container.dataset.currentUrl === url) {
-                container.style.display = 'none';
-                container.innerHTML = '';
-                container.dataset.currentUrl = '';
+            /* Toggle off if already open */
+            if (previewDiv.style.display === 'block') {
+                previewDiv.style.display = 'none';
+                previewDiv.innerHTML = '';
+                btn.querySelector('i').className = 'fa-solid fa-play';
                 return;
             }
+
+            /* Close all other open previews first */
+            document.querySelectorAll('.ft-inline-preview').forEach(el => {
+                if (el !== previewDiv) { el.style.display = 'none'; el.innerHTML = ''; }
+            });
+            document.querySelectorAll('.ft-result-preview i').forEach(i => {
+                if (i !== btn.querySelector('i')) i.className = 'fa-solid fa-play';
+            });
 
             const videoId = extractYouTubeId(url);
             if (!videoId) {
-                container.innerHTML = '<div style="color:#ef4444;padding:0.75rem;text-align:center;font-size:0.85rem;">Unable to load preview</div>';
-                container.style.display = 'block';
+                previewDiv.innerHTML = '<div style="color:#ef4444;padding:0.75rem;text-align:center;font-size:0.85rem;">Unable to load preview</div>';
+                previewDiv.style.display = 'block';
                 return;
             }
 
-            container.dataset.currentUrl = url;
-            container.innerHTML = `
-                <button class="ft-preview-close" onclick="this.parentElement.style.display='none';this.parentElement.innerHTML='';" title="Close preview">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
+            previewDiv.innerHTML = `
                 <iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0"
                     allow="autoplay; encrypted-media" allowfullscreen></iframe>
             `;
-            container.style.display = 'block';
+            previewDiv.style.display = 'block';
+            btn.querySelector('i').className = 'fa-solid fa-stop';
 
-            /* Scroll the preview into view */
-            container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            setTimeout(() => previewDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
         }
 
         function reopenFailedOverlay() {
