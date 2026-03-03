@@ -28,7 +28,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 
 
 @app.context_processor
@@ -341,18 +341,28 @@ def lidarr_request(endpoint, method="GET", data=None, params=None):
 
 def get_missing_albums():
     try:
-        wanted = lidarr_request(
-            "wanted/missing?pageSize=2000&sortKey=releaseDate&sortDirection=descending&includeArtist=true"
-        )
-        if isinstance(wanted, dict) and "records" in wanted:
+        page = 1
+        page_size = 500
+        all_records = []
+        while True:
+            wanted = lidarr_request(
+                f"wanted/missing?page={page}&pageSize={page_size}"
+                f"&sortKey=releaseDate&sortDirection=descending&includeArtist=true"
+            )
+            if not isinstance(wanted, dict) or "records" not in wanted:
+                break
             records = wanted.get("records", [])
+            total_records = wanted.get("totalRecords", 0)
             for album in records:
                 stats = album.get("statistics", {})
                 total = stats.get("trackCount", 0)
                 files = stats.get("trackFileCount", 0)
                 album["missingTrackCount"] = total - files
-            return records
-        return []
+            all_records.extend(records)
+            if len(all_records) >= total_records or len(records) < page_size:
+                break
+            page += 1
+        return all_records
     except Exception as e:
         logger.warning(f"⚠️ Failed to get missing albums: {e}")
         return []
@@ -1525,6 +1535,27 @@ def api_add_to_queue():
     return jsonify({"success": True, "queue_length": len(download_queue)})
 
 
+@app.route("/api/download/queue/bulk", methods=["POST"])
+def api_add_to_queue_bulk():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"bulk_queue:{client_ip}", window=10, max_requests=3):
+        return jsonify({"success": False, "message": "Too many bulk requests, please slow down"}), 429
+    album_ids = request.json.get("album_ids", [])
+    if not isinstance(album_ids, list):
+        return jsonify({"success": False, "message": "album_ids must be a list"}), 400
+    added = 0
+    with queue_lock:
+        for album_id in album_ids:
+            if (
+                isinstance(album_id, int)
+                and album_id not in download_queue
+                and download_process.get("album_id") != album_id
+            ):
+                download_queue.append(album_id)
+                added += 1
+    return jsonify({"success": True, "added": added, "queue_length": len(download_queue)})
+
+
 @app.route("/api/download/queue/<int:album_id>", methods=["DELETE"])
 def api_remove_from_queue(album_id):
     with queue_lock:
@@ -1650,18 +1681,44 @@ def api_youtube_search():
     if pc:
         ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
     try:
+        items = []
+        seen_urls = set()
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            results = ydl.extract_info(f"ytsearch10:{query}", download=False)
-            items = []
-            for entry in results.get("entries", []):
-                items.append({
-                    "title": entry.get("title", ""),
-                    "url": entry.get("url", ""),
-                    "duration": entry.get("duration", 0),
-                    "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
-                    "thumbnail": entry.get("thumbnail", ""),
-                })
-            return jsonify({"results": items})
+            # YouTube Music first (official songs, fewer user uploads)
+            try:
+                music_results = ydl.extract_info(f"ytmsearch10:{query}", download=False)
+                for entry in (music_results or {}).get("entries", []):
+                    url = entry.get("url", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        items.append({
+                            "title": entry.get("title", ""),
+                            "url": url,
+                            "duration": entry.get("duration", 0),
+                            "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
+                            "thumbnail": entry.get("thumbnail", ""),
+                            "source": "youtube_music",
+                        })
+            except Exception:
+                pass
+            # Regular YouTube as supplemental results
+            try:
+                yt_results = ydl.extract_info(f"ytsearch5:{query}", download=False)
+                for entry in (yt_results or {}).get("entries", []):
+                    url = entry.get("url", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        items.append({
+                            "title": entry.get("title", ""),
+                            "url": url,
+                            "duration": entry.get("duration", 0),
+                            "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
+                            "thumbnail": entry.get("thumbnail", ""),
+                            "source": "youtube",
+                        })
+            except Exception:
+                pass
+        return jsonify({"results": items})
     except Exception as e:
         return jsonify({"results": [], "error": str(e)[:200]}), 500
 
