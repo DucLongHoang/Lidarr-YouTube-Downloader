@@ -1987,9 +1987,8 @@
 
         .failed-tracks-btn {
             position: fixed;
-            bottom: 2rem;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: calc(2rem + 60px + 1rem);
+            right: 2rem;
             height: 44px;
             padding: 0 1.2rem;
             background: linear-gradient(135deg, #f59e0b, #ef4444);
@@ -2015,12 +2014,26 @@
         }
 
         .failed-tracks-btn:hover {
-            transform: translateX(-50%) scale(1.05);
+            transform: scale(1.05);
             box-shadow: 0 12px 32px rgba(239, 68, 68, 0.5);
         }
 
         .failed-tracks-btn:active {
-            transform: translateX(-50%) scale(0.97);
+            transform: scale(0.97);
+        }
+
+        @media (max-width: 768px) {
+            .failed-tracks-btn {
+                bottom: 1.5rem;
+                right: 50%;
+                transform: translateX(50%);
+            }
+            .failed-tracks-btn:hover {
+                transform: translateX(50%) scale(1.05);
+            }
+            .failed-tracks-btn:active {
+                transform: translateX(50%) scale(0.97);
+            }
         }
 
         .ft-loading {
@@ -2803,8 +2816,6 @@
             }
 
             wasDownloadActive = true;
-            /* Hide failed-tracks reopen button during a new download */
-            document.getElementById('failedTracksBtn').classList.remove('active');
             document.getElementById('failedOverlay').classList.remove('active');
 
             if (!isProgressMinimized) {
