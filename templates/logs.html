@@ -897,7 +897,8 @@
 
         function renderLogCard(log) {
             const typeInfo = getLogTypeInfo(log.type);
-            const retryBtnHtml = (failedAlbumId && log.album_id === failedAlbumId)
+            const canRetry = log.type === 'album_error' || log.type === 'partial_success';
+            const retryBtnHtml = (canRetry && failedAlbumId && log.album_id === failedAlbumId)
                 ? `<a href="/?retry=1" class="btn-retry-failed" title="Open retry panel for failed tracks">
                        <i class="fas fa-redo"></i> Retry Failed Tracks
                    </a>`
