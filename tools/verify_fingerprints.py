@@ -342,14 +342,11 @@ def print_table(results, base_dir):
         return
 
     file_col = max(len(relative_path(r["file"], base_dir)) for r in results)
-    file_col = max(file_col, 4)  # minimum width for "File" header
-    track_col = max((len(r["track"] or "") for r in results), default=5)
-    track_col = max(track_col, 5)
+    file_col = max(file_col, 4)
 
     header = (
         f"{'Status':<14}  "
         f"{'File':<{file_col}}  "
-        f"{'Track':<{track_col}}  "
         f"{'Score':>5}  "
         f"{'Expected ID':<36}  "
         f"{'Matched ID':<36}"
@@ -363,11 +360,9 @@ def print_table(results, base_dir):
         score = f"{result['score']:.2f}" if result["score"] else "  -  "
         expected = result.get("expected_id") or "-"
         matched = result.get("matched_id") or "-"
-        track = result.get("track") or "-"
         print(
             f"{label:<14}  "
             f"{rel:<{file_col}}  "
-            f"{track:<{track_col}}  "
             f"{score:>5}  "
             f"{expected:<36}  "
             f"{matched:<36}"
@@ -521,17 +516,17 @@ def main():
 
     if args.json_output:
         print_json(output_results, base_dir)
-    elif output_results:
-        print_table(output_results, base_dir)
-
-    log("")
-    log("Summary:")
-    log(f"  Files scanned: {files_scanned}")
-    log(f"  Verified:      {counts['verified']}")
-    log(f"  Mismatches:    {counts['mismatch']}")
-    log(f"  Unverified:    {counts['unverified']}")
-    log(f"  No ID in tags: {counts['no_id']}")
-    log(f"  Errors:        {counts['errors']}")
+    else:
+        if output_results:
+            print_table(output_results, base_dir)
+        log("")
+        log("Summary:")
+        log(f"  Files scanned: {files_scanned}")
+        log(f"  Verified:      {counts['verified']}")
+        log(f"  Mismatches:    {counts['mismatch']}")
+        log(f"  Unverified:    {counts['unverified']}")
+        log(f"  No ID in tags: {counts['no_id']}")
+        log(f"  Errors:        {counts['errors']}")
 
 
 if __name__ == "__main__":
