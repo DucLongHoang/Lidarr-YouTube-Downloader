@@ -1865,15 +1865,139 @@
             margin-top: 0.5rem;
             border-radius: 8px;
             overflow: hidden;
-            background: #000;
             position: relative;
         }
 
-        .ft-inline-preview iframe {
+        .ft-thumb-player {
+            position: relative;
             width: 100%;
             aspect-ratio: 16 / 9;
-            border: none;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .ft-thumb-player img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
             display: block;
+            opacity: 0.75;
+        }
+
+        .ft-thumb-player-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            background: rgba(0,0,0,0.35);
+            transition: background 0.2s;
+        }
+
+        .ft-thumb-player:hover .ft-thumb-player-overlay {
+            background: rgba(0,0,0,0.55);
+        }
+
+        .ft-thumb-play-icon {
+            width: 52px;
+            height: 52px;
+            background: rgba(255,0,0,0.85);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.3rem;
+            padding-left: 3px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            transition: transform 0.2s;
+        }
+
+        .ft-thumb-player:hover .ft-thumb-play-icon {
+            transform: scale(1.1);
+        }
+
+        .ft-thumb-watch-label {
+            color: #fff;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+        }
+
+        .ft-section-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-dim);
+            padding: 0.6rem 0.75rem 0.35rem;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            margin-top: 0.25rem;
+        }
+
+        .ft-section-header:first-child {
+            border-top: none;
+            margin-top: 0;
+        }
+
+        .ft-section-header i {
+            font-size: 0.8rem;
+        }
+
+        .ft-audio-player {
+            padding: 0.6rem 0.75rem;
+            background: rgba(0,0,0,0.25);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .ft-audio-player-info {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            min-width: 0;
+        }
+
+        .ft-audio-player-info img {
+            width: 42px;
+            height: 42px;
+            object-fit: cover;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .ft-audio-player-title {
+            font-size: 0.8rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--text);
+        }
+
+        .ft-audio-player audio {
+            width: 100%;
+            height: 36px;
+            border-radius: 6px;
+            accent-color: var(--accent);
+        }
+
+        .ft-audio-loading {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.82rem;
+            color: var(--text-dim);
+            padding: 0.75rem;
         }
 
         .ft-yt-music-badge {
@@ -1920,7 +2044,42 @@
             color: var(--text-dim);
         }
 
+        .ft-result-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            flex-shrink: 0;
+        }
+
         .ft-result-preview {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 1px solid rgba(139, 92, 246, 0.4);
+            background: rgba(139, 92, 246, 0.1);
+            color: #8b5cf6;
+            cursor: pointer;
+            font-size: 0.7rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .ft-result-preview:hover {
+            background: #8b5cf6;
+            color: white;
+            border-color: #8b5cf6;
+            transform: scale(1.1);
+        }
+
+        .ft-result-preview.loading {
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        .ft-result-youtube {
             width: 32px;
             height: 32px;
             border-radius: 50%;
@@ -1934,9 +2093,10 @@
             justify-content: center;
             transition: all 0.2s;
             flex-shrink: 0;
+            text-decoration: none;
         }
 
-        .ft-result-preview:hover {
+        .ft-result-youtube:hover {
             background: #ef4444;
             color: white;
             border-color: #ef4444;
@@ -2783,9 +2943,14 @@
             };
             eventSource.onerror = () => {
                 eventSource.close();
+                eventSource = null;
                 setTimeout(connectSSE, 3000);
             };
         }
+
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) { eventSource.close(); eventSource = null; }
+        });
 
         function handleProgressUpdate(data, queue) {
             if (!data.active) {
@@ -2816,7 +2981,6 @@
             }
 
             wasDownloadActive = true;
-            document.getElementById('failedOverlay').classList.remove('active');
 
             if (!isProgressMinimized) {
                 document.getElementById('progressContainer').classList.add('active');
@@ -3016,13 +3180,15 @@
 
         function closeFailedOverlay() {
             document.getElementById('failedOverlay').classList.remove('active');
-            /* Close any open inline previews */
             document.querySelectorAll('.ft-inline-preview').forEach(el => {
+                const audio = el.querySelector('audio');
+                if (audio) audio.pause();
                 el.style.display = 'none';
                 el.innerHTML = '';
             });
-            document.querySelectorAll('.ft-result-preview i').forEach(i => {
-                i.className = 'fa-solid fa-play';
+            document.querySelectorAll('.ft-result-preview').forEach(b => {
+                b.classList.remove('loading');
+                b.querySelector('i').className = 'fa-solid fa-headphones';
             });
         }
 
@@ -3043,31 +3209,48 @@
                 const data = await res.json();
 
                 if (data.results && data.results.length > 0) {
-                    resultsDiv.innerHTML = data.results.map(r => {
+                    const renderItem = (r) => {
                         const dur = r.duration ? `${Math.floor(r.duration / 60)}:${(r.duration % 60).toString().padStart(2, '0')}` : '';
-                        const thumbHtml = r.thumbnail
-                            ? `<img src="${r.thumbnail}" alt="">`
+                        const videoId = extractYouTubeId(r.url);
+                        const thumbSrc = r.thumbnail || (videoId ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` : '');
+                        const watchUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : r.url;
+                        const thumbHtml = thumbSrc
+                            ? `<img src="${escapeHtml(thumbSrc)}" alt="">`
                             : `<div style="width:48px;height:36px;background:var(--surface);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-brands fa-youtube" style="color:var(--text-dim);"></i></div>`;
-                        const sourceBadge = r.source === 'youtube_music'
-                            ? `<span class="ft-yt-music-badge"><i class="fa-brands fa-youtube"></i> Music</span>`
-                            : `<span class="ft-yt-badge"><i class="fa-brands fa-youtube"></i> YouTube</span>`;
                         return `
-                            <div class="ft-result-item" data-url="${escapeHtml(r.url)}">
+                            <div class="ft-result-item" data-url="${escapeHtml(r.url)}" data-thumbnail="${escapeHtml(thumbSrc)}" data-title="${escapeHtml(r.title || '')}">
                                 <div class="ft-result-row">
                                     ${thumbHtml}
                                     <div class="ft-result-info">
                                         <div class="ft-result-title">${escapeHtml(r.title)}</div>
-                                        <div class="ft-result-meta">${sourceBadge}${escapeHtml(r.channel)}${dur ? ' &bull; ' + dur : ''}</div>
+                                        <div class="ft-result-meta">${escapeHtml(r.channel)}${dur ? ' &bull; ' + dur : ''}</div>
                                     </div>
-                                    <button class="ft-result-preview" onclick="event.stopPropagation();inlinePreview(this)" title="Preview">
-                                        <i class="fa-solid fa-play"></i>
-                                    </button>
-                                    <button class="ft-result-select" onclick="selectSearchResult(${index}, this.closest('.ft-result-item'))">Select</button>
+                                    <div class="ft-result-actions">
+                                        <button class="ft-result-preview" onclick="event.stopPropagation();inlinePreview(this)" title="Audio preview">
+                                            <i class="fa-solid fa-headphones"></i>
+                                        </button>
+                                        <a class="ft-result-youtube" href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener" title="Watch on YouTube" onclick="event.stopPropagation();">
+                                            <i class="fa-solid fa-play"></i>
+                                        </a>
+                                        <button class="ft-result-select" onclick="selectSearchResult(${index}, this.closest('.ft-result-item'))">Select</button>
+                                    </div>
                                 </div>
                                 <div class="ft-inline-preview"></div>
                             </div>
                         `;
-                    }).join('');
+                    };
+                    const musicItems = data.results.filter(r => r.source === 'youtube_music');
+                    const ytItems = data.results.filter(r => r.source === 'youtube');
+                    let html = '';
+                    if (musicItems.length > 0) {
+                        html += `<div class="ft-section-header"><i class="fa-brands fa-youtube"></i> YouTube Music</div>`;
+                        html += musicItems.map(renderItem).join('');
+                    }
+                    if (ytItems.length > 0) {
+                        html += `<div class="ft-section-header"><i class="fa-brands fa-youtube"></i> YouTube</div>`;
+                        html += ytItems.map(renderItem).join('');
+                    }
+                    resultsDiv.innerHTML = html;
                 } else {
                     resultsDiv.innerHTML = '<div class="ft-loading">No results found. Try a different search.</div>';
                 }
@@ -3080,9 +3263,16 @@
             const url = el.dataset.url;
             document.getElementById(`failedUrl${index}`).value = url;
             document.getElementById(`searchResults${index}`).classList.remove('active');
-            /* Close any open inline preview */
-            document.querySelectorAll('.ft-inline-preview').forEach(p => { p.style.display = 'none'; p.innerHTML = ''; });
-            document.querySelectorAll('.ft-result-preview i').forEach(i => { i.className = 'fa-solid fa-play'; });
+            document.querySelectorAll('.ft-inline-preview').forEach(p => {
+                const a = p.querySelector('audio');
+                if (a) a.pause();
+                p.style.display = 'none';
+                p.innerHTML = '';
+            });
+            document.querySelectorAll('.ft-result-preview').forEach(b => {
+                b.classList.remove('loading');
+                b.querySelector('i').className = 'fa-solid fa-headphones';
+            });
         }
 
         async function manualDownloadTrack(index) {
@@ -3153,44 +3343,64 @@
             return null;
         }
 
-        function inlinePreview(btn) {
+        async function inlinePreview(btn) {
             const item = btn.closest('.ft-result-item');
             if (!item) return;
             const url = item.dataset.url;
+            const thumbnail = item.dataset.thumbnail || '';
+            const title = item.dataset.title || '';
             const previewDiv = item.querySelector('.ft-inline-preview');
             if (!previewDiv) return;
 
-            /* Toggle off if already open */
             if (previewDiv.style.display === 'block') {
+                const audio = previewDiv.querySelector('audio');
+                if (audio) audio.pause();
                 previewDiv.style.display = 'none';
                 previewDiv.innerHTML = '';
-                btn.querySelector('i').className = 'fa-solid fa-play';
+                btn.classList.remove('loading');
+                btn.querySelector('i').className = 'fa-solid fa-headphones';
                 return;
             }
 
-            /* Close all other open previews first */
             document.querySelectorAll('.ft-inline-preview').forEach(el => {
+                const a = el.querySelector('audio');
+                if (a) a.pause();
                 if (el !== previewDiv) { el.style.display = 'none'; el.innerHTML = ''; }
             });
-            document.querySelectorAll('.ft-result-preview i').forEach(i => {
-                if (i !== btn.querySelector('i')) i.className = 'fa-solid fa-play';
+            document.querySelectorAll('.ft-result-preview').forEach(b => {
+                if (b !== btn) {
+                    b.classList.remove('loading');
+                    b.querySelector('i').className = 'fa-solid fa-headphones';
+                }
             });
 
-            const videoId = extractYouTubeId(url);
-            if (!videoId) {
-                previewDiv.innerHTML = '<div style="color:#ef4444;padding:0.75rem;text-align:center;font-size:0.85rem;">Unable to load preview</div>';
-                previewDiv.style.display = 'block';
-                return;
-            }
+            btn.classList.add('loading');
+            btn.querySelector('i').className = 'fa-solid fa-spinner fa-spin';
+
+            previewDiv.innerHTML = `<div class="ft-audio-loading"><i class="fa-solid fa-spinner fa-spin"></i> Extracting audio...</div>`;
+            previewDiv.style.display = 'block';
+            setTimeout(() => previewDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+
+            const streamUrl = `/api/youtube/stream?url=${encodeURIComponent(url)}`;
 
             previewDiv.innerHTML = `
-                <iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0"
-                    allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                <div class="ft-audio-player">
+                    <div class="ft-audio-player-info">
+                        ${thumbnail ? `<img src="${escapeHtml(thumbnail)}" alt="">` : ''}
+                        <div class="ft-audio-player-title">${escapeHtml(title)}</div>
+                    </div>
+                    <audio controls autoplay preload="auto" src="${escapeHtml(streamUrl)}"></audio>
+                </div>
             `;
-            previewDiv.style.display = 'block';
+            btn.classList.remove('loading');
             btn.querySelector('i').className = 'fa-solid fa-stop';
 
-            setTimeout(() => previewDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+            const audioEl = previewDiv.querySelector('audio');
+            audioEl.addEventListener('error', () => {
+                previewDiv.innerHTML = `<div class="ft-audio-loading" style="color:#ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> Audio not available</div>`;
+                btn.classList.remove('loading');
+                btn.querySelector('i').className = 'fa-solid fa-headphones';
+            }, { once: true });
         }
 
         function reopenFailedOverlay() {
