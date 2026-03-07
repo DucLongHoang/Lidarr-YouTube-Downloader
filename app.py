@@ -2,6 +2,8 @@ import os
 import json
 import time
 import threading
+import base64
+from datetime import datetime
 import shutil
 import re
 import logging
@@ -28,7 +30,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.0"
+VERSION = "1.5.2"
 
 
 @app.context_processor
@@ -94,12 +96,13 @@ def check_rate_limit(key, window=RATE_LIMIT_WINDOW, max_requests=RATE_LIMIT_MAX)
 
 HISTORY_FILE = "/config/download_history.json"
 LOGS_FILE = "/config/download_logs.json"
+FAILED_FILE = "/config/last_failed_result.json"
 album_cache = {}
 ALBUM_CACHE_TTL = 300
 
 
 def load_persistent_data():
-    global download_history, download_logs
+    global download_history, download_logs, last_failed_result
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     if os.path.exists(HISTORY_FILE):
         try:
@@ -115,6 +118,18 @@ def load_persistent_data():
         except Exception as e:
             logger.warning(f"⚠️ Failed to load logs file: {e}")
             download_logs = []
+    if os.path.exists(FAILED_FILE):
+        try:
+            with open(FAILED_FILE, "r") as f:
+                data = json.load(f)
+            if data.get("cover_data_b64"):
+                data["cover_data"] = base64.b64decode(data.pop("cover_data_b64"))
+            else:
+                data.pop("cover_data_b64", None)
+                data["cover_data"] = None
+            last_failed_result.update(data)
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load failed result file: {e}")
 
 
 _file_write_lock = threading.Lock()
@@ -125,9 +140,23 @@ def save_history():
         os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
         with _file_write_lock:
             with open(HISTORY_FILE, "w") as f:
-                json.dump(download_history[-25:], f)
+                json.dump(download_history, f)
     except Exception as e:
         logger.warning(f"⚠️ Failed to save history: {e}")
+
+
+def save_failed_result():
+    try:
+        os.makedirs(os.path.dirname(FAILED_FILE), exist_ok=True)
+        data = {k: v for k, v in last_failed_result.items() if k != "cover_data"}
+        raw = last_failed_result.get("cover_data")
+        if raw:
+            data["cover_data_b64"] = base64.b64encode(raw).decode("utf-8")
+        with _file_write_lock:
+            with open(FAILED_FILE, "w") as f:
+                json.dump(data, f)
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to save failed result: {e}")
 
 
 def save_logs():
@@ -341,18 +370,28 @@ def lidarr_request(endpoint, method="GET", data=None, params=None):
 
 def get_missing_albums():
     try:
-        wanted = lidarr_request(
-            "wanted/missing?pageSize=2000&sortKey=releaseDate&sortDirection=descending&includeArtist=true"
-        )
-        if isinstance(wanted, dict) and "records" in wanted:
+        page = 1
+        page_size = 500
+        all_records = []
+        while True:
+            wanted = lidarr_request(
+                f"wanted/missing?page={page}&pageSize={page_size}"
+                f"&sortKey=releaseDate&sortDirection=descending&includeArtist=true"
+            )
+            if not isinstance(wanted, dict) or "records" not in wanted:
+                break
             records = wanted.get("records", [])
+            total_records = wanted.get("totalRecords", 0)
             for album in records:
                 stats = album.get("statistics", {})
                 total = stats.get("trackCount", 0)
                 files = stats.get("trackFileCount", 0)
                 album["missingTrackCount"] = total - files
-            return records
-        return []
+            all_records.extend(records)
+            if len(all_records) >= total_records or len(records) < page_size:
+                break
+            page += 1
+        return all_records
     except Exception as e:
         logger.warning(f"⚠️ Failed to get missing albums: {e}")
         return []
@@ -1238,6 +1277,7 @@ def process_album_download(album_id, force=False):
                 "artist_name": "", "cover_url": "", "album_path": "",
                 "album_data": None, "cover_data": None, "lidarr_album_path": "",
             })
+        save_failed_result()
 
         with queue_lock:
             download_history.append(
@@ -1250,7 +1290,6 @@ def process_album_download(album_id, force=False):
                     "timestamp": time.time(),
                 }
             )
-            download_history[:] = download_history[-25:]
             save_history()
         download_process["active"] = False
         download_process["progress"] = {}
@@ -1495,7 +1534,8 @@ def api_download_stream():
 
 @app.route("/api/stats")
 def api_stats():
-    today_start = time.time() - (time.time() % 86400)
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day).timestamp()
     with queue_lock:
         downloaded_today = sum(
             1 for h in download_history
@@ -1557,6 +1597,27 @@ def api_add_to_queue():
         ):
             download_queue.append(album_id)
     return jsonify({"success": True, "queue_length": len(download_queue)})
+
+
+@app.route("/api/download/queue/bulk", methods=["POST"])
+def api_add_to_queue_bulk():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"bulk_queue:{client_ip}", window=10, max_requests=3):
+        return jsonify({"success": False, "message": "Too many bulk requests, please slow down"}), 429
+    album_ids = request.json.get("album_ids", [])
+    if not isinstance(album_ids, list):
+        return jsonify({"success": False, "message": "album_ids must be a list"}), 400
+    added = 0
+    with queue_lock:
+        for album_id in album_ids:
+            if (
+                isinstance(album_id, int)
+                and album_id not in download_queue
+                and download_process.get("album_id") != album_id
+            ):
+                download_queue.append(album_id)
+                added += 1
+    return jsonify({"success": True, "added": added, "queue_length": len(download_queue)})
 
 
 @app.route("/api/download/queue/<int:album_id>", methods=["DELETE"])
@@ -1684,18 +1745,44 @@ def api_youtube_search():
     if pc:
         ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
     try:
+        items = []
+        seen_urls = set()
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            results = ydl.extract_info(f"ytsearch10:{query}", download=False)
-            items = []
-            for entry in results.get("entries", []):
-                items.append({
-                    "title": entry.get("title", ""),
-                    "url": entry.get("url", ""),
-                    "duration": entry.get("duration", 0),
-                    "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
-                    "thumbnail": entry.get("thumbnail", ""),
-                })
-            return jsonify({"results": items})
+            # YouTube Music first (official songs, fewer user uploads)
+            try:
+                music_results = ydl.extract_info(f"ytmsearch10:{query}", download=False)
+                for entry in (music_results or {}).get("entries", []):
+                    url = entry.get("url", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        items.append({
+                            "title": entry.get("title", ""),
+                            "url": url,
+                            "duration": entry.get("duration", 0),
+                            "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
+                            "thumbnail": entry.get("thumbnail", ""),
+                            "source": "youtube_music",
+                        })
+            except Exception:
+                pass
+            # Regular YouTube as supplemental results
+            try:
+                yt_results = ydl.extract_info(f"ytsearch5:{query}", download=False)
+                for entry in (yt_results or {}).get("entries", []):
+                    url = entry.get("url", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        items.append({
+                            "title": entry.get("title", ""),
+                            "url": url,
+                            "duration": entry.get("duration", 0),
+                            "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
+                            "thumbnail": entry.get("thumbnail", ""),
+                            "source": "youtube",
+                        })
+            except Exception:
+                pass
+        return jsonify({"results": items})
     except Exception as e:
         return jsonify({"results": [], "error": str(e)[:200]}), 500
 
@@ -1819,6 +1906,7 @@ def api_download_manual():
             t for t in last_failed_result.get("failed_tracks", [])
             if t.get("title", "").lower() != track_title.lower()
         ]
+        save_failed_result()
 
         artist_id = album_data.get("artist", {}).get("id")
         if artist_id:
@@ -1856,7 +1944,6 @@ def api_download_manual():
                     "timestamp": time.time(),
                 }
             )
-            download_history[:] = download_history[-25:]
             save_history()
 
         return jsonify({"success": True, "message": f"Track '{track_title}' downloaded successfully"})
