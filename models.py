@@ -89,6 +89,17 @@ def get_history_count_today():
     return row[0]
 
 
+def get_history_album_ids_since(since_timestamp):
+    """Return set of album IDs with successful downloads since timestamp."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT album_id FROM download_history"
+        " WHERE success = 1 AND timestamp >= ?",
+        (since_timestamp,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
 def clear_history():
     """Delete all download history entries."""
     conn = db.get_db()

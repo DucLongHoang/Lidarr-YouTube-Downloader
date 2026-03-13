@@ -17,11 +17,15 @@ import db
 
 
 def load_json(path):
-    """Load and return parsed JSON from path, or None if file missing."""
+    """Load and return parsed JSON from path, or None if missing/corrupt."""
     if not os.path.exists(path):
         return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"WARNING: Failed to load {path}: {e}")
+        return None
 
 
 def migrate_history(conn, records):
@@ -150,23 +154,23 @@ def main():
     db.init_db()
     conn = db.get_db()
 
-    history = load_json(history_path)
-    if history is not None:
-        count = migrate_history(conn, history)
-        rename_migrated(history_path)
-        print(f"Migrated {count} download_history records")
+    migrations = [
+        (history_path, "download_history", migrate_history),
+        (logs_path, "download_logs", migrate_logs),
+        (failed_path, "failed_tracks", migrate_failed),
+    ]
 
-    logs = load_json(logs_path)
-    if logs is not None:
-        count = migrate_logs(conn, logs)
-        rename_migrated(logs_path)
-        print(f"Migrated {count} download_logs records")
-
-    failed = load_json(failed_path)
-    if failed is not None:
-        count = migrate_failed(conn, failed)
-        rename_migrated(failed_path)
-        print(f"Migrated {count} failed_tracks records")
+    for path, label, migrate_fn in migrations:
+        data = load_json(path)
+        if data is None:
+            continue
+        try:
+            count = migrate_fn(conn, data)
+            print(f"Migrated {count} {label} records")
+            rename_migrated(path)
+        except Exception as e:
+            print(f"ERROR: Failed to migrate {label} from {path}: {e}")
+            print(f"  File NOT renamed — fix the issue and retry.")
 
     db.close_db()
     print("Migration complete.")

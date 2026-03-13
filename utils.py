@@ -55,8 +55,8 @@ def get_umask():
     """Parse UMASK from environment variable. Defaults to 002 (775/664 permissions)."""
     umask_str = os.getenv("UMASK", "002").strip()
     try:
-        if umask_str.startswith("0o"):
-            return int(umask_str, 8)
+        if umask_str.startswith(("0o", "0O")):
+            return int(umask_str, 0)
         return int(umask_str, 8)
     except ValueError:
         return 0o002

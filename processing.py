@@ -120,14 +120,20 @@ def process_album_download(album_id, force=False):
 
         tracks = album.get("tracks", [])
         if not tracks:
-            try:
-                tracks_res = lidarr_request(f"track?albumId={album_id}")
-                if isinstance(tracks_res, list) and len(tracks_res) > 0:
-                    tracks = tracks_res
-            except Exception as e:
-                logger.debug(f"Failed to fetch tracks from Lidarr: {e}")
+            tracks_res = lidarr_request(f"track?albumId={album_id}")
+            if isinstance(tracks_res, dict) and "error" in tracks_res:
+                logger.warning(
+                    "Lidarr track fetch for album %s failed: %s",
+                    album_id, tracks_res["error"],
+                )
+            elif isinstance(tracks_res, list) and len(tracks_res) > 0:
+                tracks = tracks_res
 
         if not tracks:
+            logger.info(
+                "No tracks from Lidarr for album %s, using iTunes fallback",
+                album_id,
+            )
             tracks = get_itunes_tracks(
                 album["artist"]["artistName"], album["title"]
             )
@@ -267,7 +273,7 @@ def process_album_download(album_id, force=False):
         return {"success": True}
 
     except Exception as e:
-        logger.error(f"Error during album download: {e}")
+        logger.error("Error during album download: %s", e, exc_info=True)
         _artist = download_process.get("artist_name", "Unknown")
         _album = download_process.get("album_title", "Unknown")
         send_notifications(
@@ -290,16 +296,19 @@ def process_album_download(album_id, force=False):
         download_process["result_success"] = False
         return {"error": str(e)}
     finally:
-        _cover_url = download_process.get("cover_url", "")
+        with queue_lock:
+            _cover_url = download_process.get("cover_url", "")
+            _album_title = download_process.get("album_title", "") or album_title
+            _artist_name = download_process.get("artist_name", "") or artist_name
+            _result_success = download_process.get("result_success", True)
+            _result_partial = download_process.get("result_partial", False)
+            _album_id = download_process.get("album_id")
+
         if failed_tracks:
             models.save_failed_tracks(
                 album_id=album_id,
-                album_title=(
-                    download_process.get("album_title", "") or album_title
-                ),
-                artist_name=(
-                    download_process.get("artist_name", "") or artist_name
-                ),
+                album_title=_album_title,
+                artist_name=_artist_name,
                 cover_url=_cover_url,
                 album_path=album_path,
                 lidarr_album_path=lidarr_album_path,
@@ -316,20 +325,21 @@ def process_album_download(album_id, force=False):
             models.clear_failed_tracks()
 
         models.add_history_entry(
-            album_id=download_process.get("album_id"),
-            album_title=download_process.get("album_title", ""),
-            artist_name=download_process.get("artist_name", ""),
-            success=download_process.get("result_success", True),
-            partial=download_process.get("result_partial", False),
+            album_id=_album_id,
+            album_title=_album_title,
+            artist_name=_artist_name,
+            success=_result_success,
+            partial=_result_partial,
         )
 
-        download_process["active"] = False
-        download_process["progress"] = {}
-        download_process["album_id"] = None
-        download_process["album_title"] = ""
-        download_process["artist_name"] = ""
-        download_process["current_track_title"] = ""
-        download_process["cover_url"] = ""
+        with queue_lock:
+            download_process["active"] = False
+            download_process["progress"] = {}
+            download_process["album_id"] = None
+            download_process["album_title"] = ""
+            download_process["artist_name"] = ""
+            download_process["current_track_title"] = ""
+            download_process["cover_url"] = ""
 
 
 def _filter_tracks(tracks, force, album_path):
@@ -442,8 +452,8 @@ def _download_tracks(
                 if os.path.exists(tmp):
                     try:
                         os.remove(tmp)
-                    except Exception:
-                        pass
+                    except OSError as rm_err:
+                        logger.debug("Failed to remove temp file %s: %s", tmp, rm_err)
             failed_tracks.append({
                 "title": track_title,
                 "reason": fail_reason,
@@ -622,7 +632,12 @@ def _copy_to_lidarr(
             return lidarr_album_path, lidarr_album_path
         except Exception as e:
             logger.error(
-                f"Error copying files to Lidarr folder: {e}"
+                "Error copying files to Lidarr folder: %s",
+                e, exc_info=True,
+            )
+            send_notifications(
+                f"Copy to Lidarr failed: {e}",
+                log_type="album_error",
             )
             return album_path, lidarr_album_path
     return album_path, lidarr_album_path

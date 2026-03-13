@@ -175,14 +175,13 @@ def api_config_import():
 
 @app.route("/api/test-connection")
 def api_test_connection():
-    try:
-        system = lidarr_request("system/status")
-        return jsonify({
-            "status": "success" if "version" in system else "error",
-            "lidarr_version": system.get("version", "Unknown"),
-        })
-    except Exception:
-        return jsonify({"status": "error"})
+    system = lidarr_request("system/status")
+    if "error" in system:
+        return jsonify({"status": "error", "message": system["error"]})
+    return jsonify({
+        "status": "success" if "version" in system else "error",
+        "lidarr_version": system.get("version", "Unknown"),
+    })
 
 
 @app.route("/api/missing-albums")
@@ -356,7 +355,7 @@ def api_get_queue():
 
 @app.route("/api/download/queue", methods=["POST"])
 def api_add_to_queue():
-    album_id = request.json.get("album_id")
+    album_id = (request.json or {}).get("album_id")
     with queue_lock:
         current_id = download_process.get("album_id")
     if current_id != album_id:
@@ -374,7 +373,7 @@ def api_add_to_queue_bulk():
             "success": False,
             "message": "Too many bulk requests, please slow down",
         }), 429
-    album_ids = request.json.get("album_ids", [])
+    album_ids = (request.json or {}).get("album_ids", [])
     if not isinstance(album_ids, list):
         return jsonify({"success": False, "message": "album_ids must be a list"}), 400
     added = 0
@@ -554,8 +553,8 @@ def api_youtube_search():
                             "thumbnail": entry.get("thumbnail", ""),
                             "source": "youtube_music",
                         })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("YouTube Music search failed: %s", e)
             try:
                 yt_results = ydl.extract_info(
                     f"ytsearch5:{query}", download=False
@@ -576,8 +575,8 @@ def api_youtube_search():
                             "thumbnail": entry.get("thumbnail", ""),
                             "source": "youtube",
                         })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("YouTube search failed: %s", e)
         return jsonify({"results": items})
     except Exception as e:
         return jsonify({"results": [], "error": str(e)[:200]}), 500
@@ -803,14 +802,17 @@ def _execute_manual_download(
         })
 
     except Exception as e:
-        logger.warning("Manual download failed for '%s': %s", track_title, e)
+        logger.warning(
+            "Manual download failed for '%s': %s",
+            track_title, e, exc_info=True,
+        )
         for ext in [".mp3", ".webm", ".m4a", ".part"]:
             tmp = temp_file + ext
             if os.path.exists(tmp):
                 try:
                     os.remove(tmp)
-                except Exception:
-                    pass
+                except OSError as rm_err:
+                    logger.debug("Failed to remove temp file %s: %s", tmp, rm_err)
         return jsonify({"success": False, "message": str(e)[:200]}), 500
 
 

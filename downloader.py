@@ -23,11 +23,15 @@ def get_ytdlp_version():
     try:
         import importlib.metadata
         return importlib.metadata.version("yt-dlp")
-    except Exception:
-        try:
-            return yt_dlp.version.__version__
-        except Exception:
-            return "unknown"
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    except Exception as e:
+        logger.debug("importlib.metadata version lookup failed: %s", e)
+    try:
+        return yt_dlp.version.__version__
+    except AttributeError:
+        logger.warning("Could not determine yt-dlp version")
+        return "unknown"
 
 
 def _title_similarity(yt_title, track_title, artist_name):

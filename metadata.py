@@ -45,7 +45,8 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
     try:
         try:
             audio = MP3(file_path, ID3=ID3)
-        except Exception:
+        except Exception as e:
+            logger.debug("MP3 load with ID3 failed for %s: %s, retrying", file_path, e)
             audio = MP3(file_path)
             audio.add_tags()
         if audio.tags is None:

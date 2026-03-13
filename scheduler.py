@@ -28,12 +28,11 @@ def scheduled_check():
     if not albums:
         return
 
-    history = models.get_history(page=1, per_page=50)
-    recent_history_ids = [
-        h["album_id"]
-        for h in history["items"]
-        if h.get("success")
-    ]
+    interval_minutes = int(config.get("scheduler_interval", 60))
+    lookback_seconds = interval_minutes * 60 * 2
+    recent_history_ids = models.get_history_album_ids_since(
+        time.time() - lookback_seconds
+    )
     current_download_id = download_process.get("album_id")
 
     queued_ids = {row["album_id"] for row in models.get_queue()}

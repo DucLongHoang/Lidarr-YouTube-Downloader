@@ -98,8 +98,8 @@ def load_config():
                 config["duration_tolerance"] = int(
                     config["duration_tolerance"]
                 )
-        except Exception as e:
-            logger.warning(f"Failed to load config file: {e}")
+        except (json.JSONDecodeError, OSError, ValueError) as e:
+            logger.warning("Failed to load config file %s: %s", CONFIG_FILE, e)
 
     def norm(p):
         return (
@@ -126,6 +126,10 @@ def save_config(config):
         config["scheduler_interval"] = int(config["scheduler_interval"])
     if "duration_tolerance" in config:
         config["duration_tolerance"] = int(config["duration_tolerance"])
-    with _file_write_lock:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(config, f, indent=2)
+    try:
+        with _file_write_lock:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=2)
+    except OSError as e:
+        logger.error("Failed to save config to %s: %s", CONFIG_FILE, e)
+        raise

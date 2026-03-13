@@ -39,7 +39,14 @@ def lidarr_request(endpoint, method="GET", data=None, params=None):
             )
         r.raise_for_status()
         return r.json()
+    except requests.exceptions.ConnectionError as e:
+        logger.warning("Cannot connect to Lidarr at %s: %s", url, e)
+        return {"error": f"Cannot connect to Lidarr: {e}"}
+    except requests.exceptions.Timeout:
+        logger.warning("Lidarr request timed out: %s", endpoint)
+        return {"error": "Lidarr request timed out"}
     except Exception as e:
+        logger.error("Unexpected error calling Lidarr %s: %s", endpoint, e)
         return {"error": str(e)}
 
 
@@ -61,6 +68,11 @@ def get_missing_albums():
                 f"&includeArtist=true"
             )
             if not isinstance(wanted, dict) or "records" not in wanted:
+                if isinstance(wanted, dict) and "error" in wanted:
+                    logger.warning(
+                        "Lidarr returned error fetching missing albums"
+                        " (page %d): %s", page, wanted["error"],
+                    )
                 break
             records = wanted.get("records", [])
             total_records = wanted.get("totalRecords", 0)
