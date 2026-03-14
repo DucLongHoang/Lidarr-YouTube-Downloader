@@ -1928,29 +1928,6 @@
             text-shadow: 0 1px 4px rgba(0,0,0,0.7);
         }
 
-        .ft-section-header {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.72rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--text-dim);
-            padding: 0.6rem 0.75rem 0.35rem;
-            border-top: 1px solid rgba(255,255,255,0.06);
-            margin-top: 0.25rem;
-        }
-
-        .ft-section-header:first-child {
-            border-top: none;
-            margin-top: 0;
-        }
-
-        .ft-section-header i {
-            font-size: 0.8rem;
-        }
-
         .ft-audio-player {
             padding: 0.6rem 0.75rem;
             background: rgba(0,0,0,0.25);
@@ -3148,14 +3125,14 @@
                         <div class="failed-track-reason">${escapeHtml(track.reason)}</div>
                     </div>
                     <div class="failed-track-inputs" id="failedSearchRow${i}">
-                        <input type="text" id="failedSearch${i}" placeholder="Search YouTube Music..."
+                        <input type="text" id="failedSearch${i}" placeholder="Search YouTube..."
                             value="${escapeHtml((data.artist_name || '') + ' ' + track.title)}"
                             onkeydown="if(event.key==='Enter')searchFailedTrack(${i})">
                         <button class="ft-btn" onclick="searchFailedTrack(${i})">
                             <i class="fa-solid fa-search"></i> Search
                         </button>
                     </div>
-                    <div class="failed-track-separator">or paste a YouTube / YouTube Music URL</div>
+                    <div class="failed-track-separator">or paste a YouTube URL</div>
                     <div class="failed-track-inputs" id="failedUrlRow${i}">
                         <input type="text" id="failedUrl${i}" placeholder="https://music.youtube.com/watch?v=... or youtube.com/watch?v=..."
                             onkeydown="if(event.key==='Enter')manualDownloadTrack(${i})">
@@ -3198,7 +3175,7 @@
 
             const resultsDiv = document.getElementById(`searchResults${index}`);
             resultsDiv.classList.add('active');
-            resultsDiv.innerHTML = '<div class="ft-loading"><i class="fa-solid fa-spinner fa-spin"></i> Searching YouTube Music...</div>';
+            resultsDiv.innerHTML = '<div class="ft-loading"><i class="fa-solid fa-spinner fa-spin"></i> Searching YouTube...</div>';
 
             try {
                 const res = await fetch('/api/youtube/search', {
@@ -3213,7 +3190,7 @@
                         const dur = r.duration ? `${Math.floor(r.duration / 60)}:${(r.duration % 60).toString().padStart(2, '0')}` : '';
                         const videoId = extractYouTubeId(r.url);
                         const thumbSrc = r.thumbnail || (videoId ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` : '');
-                        const watchUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : r.url;
+                        const watchUrl = r.url;
                         const thumbHtml = thumbSrc
                             ? `<img src="${escapeHtml(thumbSrc)}" alt="">`
                             : `<div style="width:48px;height:36px;background:var(--surface);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-brands fa-youtube" style="color:var(--text-dim);"></i></div>`;
@@ -3239,18 +3216,7 @@
                             </div>
                         `;
                     };
-                    const musicItems = data.results.filter(r => r.source === 'youtube_music');
-                    const ytItems = data.results.filter(r => r.source === 'youtube');
-                    let html = '';
-                    if (musicItems.length > 0) {
-                        html += `<div class="ft-section-header"><i class="fa-brands fa-youtube"></i> YouTube Music</div>`;
-                        html += musicItems.map(renderItem).join('');
-                    }
-                    if (ytItems.length > 0) {
-                        html += `<div class="ft-section-header"><i class="fa-brands fa-youtube"></i> YouTube</div>`;
-                        html += ytItems.map(renderItem).join('');
-                    }
-                    resultsDiv.innerHTML = html;
+                    resultsDiv.innerHTML = data.results.map(renderItem).join('');
                 } else {
                     resultsDiv.innerHTML = '<div class="ft-loading">No results found. Try a different search.</div>';
                 }
