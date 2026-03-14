@@ -269,6 +269,24 @@ class TestQueueRoutes:
         )
         assert resp.status_code == 400
 
+    def test_add_to_queue_null_json(self, client):
+        resp = client.post(
+            "/api/download/queue",
+            json={},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+    def test_bulk_add_empty_json(self, client):
+        resp = client.post(
+            "/api/download/queue/bulk",
+            json={},
+            content_type="application/json",
+        )
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["added"] == 0
+
 
 class TestDownloadRoute:
     def test_download_enqueues(self, client):
@@ -375,6 +393,16 @@ class TestMiscRoutes:
             data = resp.get_json()
             assert data["status"] == "success"
             assert data["lidarr_version"] == "1.0.0"
+
+    def test_test_connection_error(self, client):
+        with patch(
+            "app.lidarr_request",
+            return_value={"error": "Connection refused"},
+        ):
+            resp = client.get("/api/test-connection")
+            data = resp.get_json()
+            assert data["status"] == "error"
+            assert "Connection refused" in data["message"]
 
     def test_missing_albums(self, client):
         with patch("app.get_missing_albums", return_value=[]):

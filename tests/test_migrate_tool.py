@@ -150,3 +150,14 @@ def test_migration_partial_files(tmp_path):
     conn.close()
     assert count == 1
     assert (tmp_path / "download_history.json.migrated").exists()
+
+
+def test_migration_corrupt_json(tmp_path):
+    """Corrupt JSON files are skipped with a warning."""
+    (tmp_path / "download_history.json").write_text("{invalid json!!!")
+    (tmp_path / "download_logs.json").write_text("not json at all")
+    result = run_migrate(tmp_path)
+    assert result.returncode == 0
+    assert "WARNING" in result.stdout
+    assert not (tmp_path / "download_history.json.migrated").exists()
+    assert not (tmp_path / "download_logs.json.migrated").exists()

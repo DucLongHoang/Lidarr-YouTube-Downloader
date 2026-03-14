@@ -180,3 +180,30 @@ def test_get_history_count_today():
     models.add_history_entry(1, "A", "A", True, False)
     models.add_history_entry(2, "B", "B", False, False)
     assert models.get_history_count_today() == 1
+
+
+def test_get_history_album_ids_since():
+    import time
+
+    now = time.time()
+    models.add_history_entry(1, "A", "A", True, False)
+    models.add_history_entry(2, "B", "B", True, False)
+    models.add_history_entry(3, "C", "C", False, False)
+    result = models.get_history_album_ids_since(now - 10)
+    assert result == {1, 2}
+    assert 3 not in result
+
+
+def test_get_history_album_ids_since_empty():
+    import time
+
+    result = models.get_history_album_ids_since(time.time() - 10)
+    assert result == set()
+
+
+def test_get_history_album_ids_since_future_timestamp():
+    import time
+
+    models.add_history_entry(1, "A", "A", True, False)
+    result = models.get_history_album_ids_since(time.time() + 3600)
+    assert result == set()
