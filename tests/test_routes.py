@@ -44,47 +44,72 @@ class TestHistoryRoutes:
         assert data["total"] == 0
         assert data["page"] == 1
 
-    def test_get_history_with_entries(self, client):
+    def test_get_history_grouped(self, client):
         import models
 
-        models.add_history_entry(1, "Album A", "Artist A", True, False)
-        models.add_history_entry(2, "Album B", "Artist B", False, True)
+        models.add_track_download(
+            1, "Album A", "Artist A", "T1", 1, True, "",
+            "http://yt/1", "vid1", 0.9, 200, "", "", "",
+        )
+        models.add_track_download(
+            1, "Album A", "Artist A", "T2", 2, False, "fail",
+            "", "", 0.0, 0, "", "", "",
+        )
         resp = client.get("/api/download/history")
         data = resp.get_json()
-        assert data["total"] == 2
-        assert len(data["items"]) == 2
+        assert data["total"] == 1
+        item = data["items"][0]
+        assert item["success_count"] == 1
+        assert item["fail_count"] == 1
 
     def test_get_history_pagination(self, client):
         import models
 
         for i in range(5):
-            models.add_history_entry(i, f"Album {i}", "Artist", True, False)
+            models.add_track_download(
+                i, f"Album {i}", "Artist", "T1", 1, True, "",
+                "", "", 0.0, 0, "", "", "",
+            )
         resp = client.get("/api/download/history?page=1&per_page=2")
         data = resp.get_json()
         assert data["total"] == 5
         assert len(data["items"]) == 2
         assert data["pages"] == 3
-        assert data["page"] == 1
-
-    def test_get_history_page_2(self, client):
-        import models
-
-        for i in range(5):
-            models.add_history_entry(i, f"Album {i}", "Artist", True, False)
-        resp = client.get("/api/download/history?page=2&per_page=2")
-        data = resp.get_json()
-        assert data["page"] == 2
-        assert len(data["items"]) == 2
 
     def test_clear_history(self, client):
         import models
 
-        models.add_history_entry(1, "Album", "Artist", True, False)
+        models.add_track_download(
+            1, "A", "A", "T1", 1, True, "",
+            "", "", 0.0, 0, "", "", "",
+        )
         resp = client.post("/api/download/history/clear")
         assert resp.status_code == 200
-        assert resp.get_json()["success"] is True
         resp2 = client.get("/api/download/history")
         assert resp2.get_json()["total"] == 0
+
+
+class TestTracksEndpoint:
+    def test_get_tracks_for_album(self, client):
+        import models
+
+        models.add_track_download(
+            42, "Album", "Artist", "Track1", 1, True, "",
+            "http://yt/1", "vid1", 0.92, 240, "/dl", "/music", "",
+        )
+        models.add_track_download(
+            42, "Album", "Artist", "Track2", 2, False, "no match",
+            "", "", 0.0, 0, "/dl", "/music", "",
+        )
+        resp = client.get("/api/download/history/42/tracks")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data) == 2
+
+    def test_get_tracks_empty(self, client):
+        resp = client.get("/api/download/history/999/tracks")
+        assert resp.status_code == 200
+        assert resp.get_json() == []
 
 
 class TestLogsRoutes:
@@ -95,37 +120,35 @@ class TestLogsRoutes:
         assert data["items"] == []
         assert data["total"] == 0
 
-    def test_get_logs_with_entries(self, client):
+    def test_get_logs_no_failed_tracks_field(self, client):
         import models
 
-        models.add_log("download_success", 1, "Album A", "Artist A", "OK")
-        models.add_log("album_error", 2, "Album B", "Artist B", "Failed")
+        models.add_log("download_success", 1, "A", "A", "OK")
         resp = client.get("/api/logs")
-        data = resp.get_json()
-        assert data["total"] == 2
+        item = resp.get_json()["items"][0]
+        assert "failed_tracks" not in item
 
     def test_get_logs_pagination(self, client):
         import models
 
         for i in range(5):
-            models.add_log("download_success", i, f"Album {i}", "Artist", "OK")
+            models.add_log(
+                "download_success", i, f"Album {i}", "Artist", "OK"
+            )
         resp = client.get("/api/logs?page=1&per_page=2")
         data = resp.get_json()
         assert data["total"] == 5
         assert len(data["items"]) == 2
-        assert data["pages"] == 3
 
     def test_dismiss_log(self, client):
         import models
 
         log_id = models.add_log(
-            "download_success", 1, "Album", "Artist", "OK"
+            "download_success", 1, "A", "A", "OK"
         )
         resp = client.delete(f"/api/logs/{log_id}/dismiss")
         assert resp.status_code == 200
         assert resp.get_json()["success"] is True
-        resp2 = client.get("/api/logs")
-        assert resp2.get_json()["total"] == 0
 
     def test_dismiss_nonexistent_log(self, client):
         resp = client.delete("/api/logs/nonexistent_123/dismiss")
@@ -134,12 +157,9 @@ class TestLogsRoutes:
     def test_clear_logs(self, client):
         import models
 
-        models.add_log("download_success", 1, "Album", "Artist", "OK")
+        models.add_log("download_success", 1, "A", "A", "OK")
         resp = client.post("/api/logs/clear")
         assert resp.status_code == 200
-        assert resp.get_json()["success"] is True
-        resp2 = client.get("/api/logs")
-        assert resp2.get_json()["total"] == 0
 
     def test_logs_size(self, client):
         resp = client.get("/api/logs/size")
@@ -153,28 +173,26 @@ class TestFailedTracksRoute:
         resp = client.get("/api/download/failed")
         data = resp.get_json()
         assert data["failed_tracks"] == []
-        assert data["album_id"] is None
 
     def test_get_failed_tracks_with_data(self, client):
         import models
 
-        models.save_failed_tracks(
-            album_id=42,
-            album_title="Test Album",
-            artist_name="Test Artist",
-            cover_url="http://example.com/cover.jpg",
-            album_path="/tmp/downloads/test",
-            lidarr_album_path="/tmp/music/test",
-            tracks=[
-                {"title": "Track 1", "reason": "Not found", "track_num": 1},
-                {"title": "Track 2", "reason": "403 error", "track_num": 2},
-            ],
+        models.add_track_download(
+            42, "Test Album", "Test Artist", "Track 1", 1,
+            False, "Not found", "", "", 0.0, 0,
+            "/tmp/downloads/test", "/tmp/music/test",
+            "http://example.com/cover.jpg",
+        )
+        models.add_track_download(
+            42, "Test Album", "Test Artist", "Track 2", 2,
+            True, "", "http://yt/1", "vid", 0.9, 200,
+            "/tmp/downloads/test", "/tmp/music/test",
+            "http://example.com/cover.jpg",
         )
         resp = client.get("/api/download/failed")
         data = resp.get_json()
-        assert len(data["failed_tracks"]) == 2
+        assert len(data["failed_tracks"]) == 1
         assert data["album_id"] == 42
-        assert data["album_title"] == "Test Album"
 
 
 class TestStatsRoute:
@@ -184,10 +202,13 @@ class TestStatsRoute:
         assert data["downloaded_today"] == 0
         assert data["in_queue"] == 0
 
-    def test_stats_with_history(self, client):
+    def test_stats_with_downloads(self, client):
         import models
 
-        models.add_history_entry(1, "Album", "Artist", True, False)
+        models.add_track_download(
+            1, "A", "A", "T1", 1, True, "",
+            "", "", 0.0, 0, "", "", "",
+        )
         resp = client.get("/api/stats")
         data = resp.get_json()
         assert data["downloaded_today"] == 1

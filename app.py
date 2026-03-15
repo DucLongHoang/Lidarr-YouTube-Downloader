@@ -409,13 +409,18 @@ def api_clear_queue():
 def api_download_history():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 50, type=int)
-    return jsonify(models.get_history(page, per_page))
+    return jsonify(models.get_album_history(page, per_page))
 
 
 @app.route("/api/download/history/clear", methods=["POST"])
 def api_clear_history():
     models.clear_history()
     return jsonify({"success": True})
+
+
+@app.route("/api/download/history/<int:album_id>/tracks")
+def api_album_tracks(album_id):
+    return jsonify(models.get_track_downloads_for_album(album_id))
 
 
 # --- Stats ---
@@ -467,7 +472,22 @@ def api_dismiss_log(log_id):
 
 @app.route("/api/download/failed")
 def api_download_failed():
-    return jsonify(models.get_failed_tracks_context())
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT DISTINCT album_id FROM track_downloads"
+        " ORDER BY timestamp DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return jsonify({
+            "failed_tracks": [],
+            "album_id": None,
+            "album_title": "",
+            "artist_name": "",
+            "cover_url": "",
+            "album_path": "",
+            "lidarr_album_path": "",
+        })
+    return jsonify(models.get_failed_tracks_for_retry(row[0]))
 
 
 # --- Scheduler routes ---
@@ -605,8 +625,12 @@ def api_download_manual():
     if youtube_url is None:
         return jsonify({"success": False, "message": "Invalid YouTube URL"}), 400
 
-    failed_ctx = models.get_failed_tracks_context()
-    album_id_ctx = failed_ctx.get("album_id")
+    conn = db.get_db()
+    latest_row = conn.execute(
+        "SELECT DISTINCT album_id FROM track_downloads"
+        " ORDER BY timestamp DESC LIMIT 1"
+    ).fetchone()
+    album_id_ctx = latest_row[0] if latest_row else None
     if not album_id_ctx:
         return jsonify({
             "success": False,
@@ -620,6 +644,7 @@ def api_download_manual():
             "message": f"Failed to fetch album from Lidarr: {album_data['error']}",
         }), 500
 
+    failed_ctx = models.get_failed_tracks_for_retry(album_id_ctx)
     dl_album_path = failed_ctx.get("album_path", "")
     lidarr_album_path_val = failed_ctx.get("lidarr_album_path", "")
     target_path = (
@@ -762,7 +787,22 @@ def _execute_manual_download(
         shutil.move(actual_file, final_file)
         set_permissions(final_file)
 
-        models.remove_failed_track(track_title)
+        album_title = failed_ctx.get("album_title", "")
+        artist_name = failed_ctx.get("artist_name", "")
+
+        models.add_track_download(
+            album_id=album_id_ctx, album_title=album_title,
+            artist_name=artist_name, track_title=track_title,
+            track_number=int(track_num), success=True,
+            error_message="",
+            youtube_url=youtube_url,
+            youtube_title="Manual download",
+            match_score=1.0,
+            duration_seconds=0,
+            album_path=failed_ctx.get("album_path", ""),
+            lidarr_album_path=failed_ctx.get("lidarr_album_path", ""),
+            cover_url=failed_ctx.get("cover_url", ""),
+        )
 
         artist_id = album_data.get("artist", {}).get("id")
         if artist_id:
@@ -773,27 +813,13 @@ def _execute_manual_download(
 
         logger.info("Manual download successful: %s", track_title)
 
-        album_title = failed_ctx.get("album_title", "")
-        artist_name = failed_ctx.get("artist_name", "")
-
         models.add_log(
             log_type="manual_download",
             album_id=album_id_ctx or 0,
             album_title=album_title or "Unknown Album",
             artist_name=artist_name or "Unknown Artist",
             details=f"Manually downloaded track: {track_title} (from YouTube)",
-            failed_tracks=[],
             total_file_size=manual_file_size,
-        )
-
-        models.add_history_entry(
-            album_id=album_id_ctx,
-            album_title=album_title or "Unknown Album",
-            artist_name=artist_name or "Unknown Artist",
-            success=True,
-            partial=False,
-            manual=True,
-            track_title=track_title,
         )
 
         return jsonify({
