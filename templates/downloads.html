@@ -1152,66 +1152,55 @@
             return wrapper;
         }
 
-        async function toggleTracks(row, albumId) {
-            const grid = document.getElementById('tracks-' + albumId);
-            const icon = document.getElementById('expand-icon-' + albumId);
-
-            if (grid.style.display !== 'none') {
-                grid.style.display = 'none';
-                icon.classList.remove('expanded');
-                return;
-            }
-
-            icon.classList.add('expanded');
+        async function renderTrackGrid(grid, albumId) {
             grid.textContent = '';
-            const loading = document.createElement('div');
+            var loading = document.createElement('div');
             loading.style.cssText = 'padding:1rem;color:var(--text-dim);text-align:center;';
             loading.textContent = 'Loading...';
             grid.appendChild(loading);
-            grid.style.display = 'block';
 
             try {
-                const resp = await fetch('/api/download/history/' + albumId + '/tracks');
+                var resp = await fetch('/api/download/history/' + albumId + '/tracks');
                 if (!resp.ok) {
                     throw new Error('Server returned ' + resp.status);
                 }
-                const tracks = await resp.json();
+                var tracks = await resp.json();
                 if (tracks.length === 0) {
                     grid.textContent = '';
-                    const empty = document.createElement('div');
+                    var empty = document.createElement('div');
                     empty.style.cssText = 'padding:1rem;color:var(--text-dim);text-align:center;';
                     empty.textContent = 'No track data';
                     grid.appendChild(empty);
                     return;
                 }
 
-                const byTrack = {};
-                for (const t of tracks) {
-                    const key = t.track_title;
+                var byTrack = {};
+                for (var i = 0; i < tracks.length; i++) {
+                    var key = tracks[i].track_title;
                     if (!byTrack[key]) byTrack[key] = [];
-                    byTrack[key].push(t);
+                    byTrack[key].push(tracks[i]);
                 }
 
-                const sorted = Object.values(byTrack).map(function(attempts) {
+                var sorted = Object.values(byTrack).map(function(attempts) {
                     attempts.sort(function(a, b) { return b.timestamp - a.timestamp; });
                     return { latest: attempts[0], attempts: attempts.length };
                 });
                 sorted.sort(function(a, b) { return a.latest.track_number - b.latest.track_number; });
 
-                const container = document.createDocumentFragment();
+                var fragment = document.createDocumentFragment();
 
-                const header = document.createElement('div');
+                var header = document.createElement('div');
                 header.className = 'track-detail-header';
                 ['#', 'Track', 'YouTube Source', 'Score', 'Dur.', 'Downloaded'].forEach(function(text) {
-                    const cell = document.createElement('div');
+                    var cell = document.createElement('div');
                     cell.textContent = text;
                     header.appendChild(cell);
                 });
-                container.appendChild(header);
+                fragment.appendChild(header);
 
                 sorted.forEach(function(item) {
                     var t = item.latest;
-                    var attempts = item.attempts;
+                    var attemptCount = item.attempts;
                     var isFailed = !t.success;
                     var detailRow = document.createElement('div');
                     detailRow.className = isFailed ? 'track-detail-row track-failed' : 'track-detail-row';
@@ -1224,11 +1213,11 @@
                     var titleCell = document.createElement('div');
                     titleCell.style.color = isFailed ? 'var(--danger)' : 'var(--text)';
                     titleCell.textContent = t.track_title;
-                    if (attempts > 1) {
+                    if (attemptCount > 1) {
                         var attemptBadge = document.createElement('span');
                         attemptBadge.className = 'track-attempts';
-                        attemptBadge.title = attempts + ' download attempts';
-                        attemptBadge.textContent = '(' + attempts + ' attempts)';
+                        attemptBadge.title = attemptCount + ' download attempts';
+                        attemptBadge.textContent = '(' + attemptCount + ' attempts)';
                         titleCell.appendChild(attemptBadge);
                     }
                     detailRow.appendChild(titleCell);
@@ -1281,18 +1270,36 @@
                     timeCell.textContent = new Date(t.timestamp * 1000).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
                     detailRow.appendChild(timeCell);
 
-                    container.appendChild(detailRow);
+                    fragment.appendChild(detailRow);
                 });
 
                 grid.textContent = '';
-                grid.appendChild(container);
+                grid.appendChild(fragment);
             } catch (e) {
+                console.error('Failed to load tracks for album ' + albumId, e);
                 grid.textContent = '';
                 var errDiv = document.createElement('div');
                 errDiv.style.cssText = 'padding:1rem;color:var(--danger);text-align:center;';
-                errDiv.textContent = 'Failed to load tracks';
+                errDiv.textContent = 'Failed to load tracks: ' + e.message;
                 grid.appendChild(errDiv);
             }
+        }
+
+        async function toggleTracks(row, albumId) {
+            var grid = document.getElementById('tracks-' + albumId);
+            var icon = document.getElementById('expand-icon-' + albumId);
+
+            if (grid.style.display !== 'none') {
+                grid.style.display = 'none';
+                icon.classList.remove('expanded');
+                expandedAlbumIds.delete(albumId);
+                return;
+            }
+
+            icon.classList.add('expanded');
+            grid.style.display = 'block';
+            expandedAlbumIds.add(albumId);
+            await renderTrackGrid(grid, albumId);
         }
 
         // Builds a compact array of page numbers with ellipsis gaps.
@@ -1373,6 +1380,8 @@
             updateHistory();
         }
 
+        var expandedAlbumIds = new Set();
+
         async function updateHistory() {
             const url = `/api/download/history?page=${historyCurrentPage}&per_page=${HISTORY_PER_PAGE}`;
             const res = await fetch(url);
@@ -1385,10 +1394,16 @@
             historyCurrentPage = data.page;
 
             if (data.total === 0) {
+                expandedAlbumIds.clear();
                 container.textContent = '';
-                const empty = document.createElement('div');
+                var empty = document.createElement('div');
                 empty.className = 'empty-state';
-                empty.innerHTML = '<i class="fa-solid fa-history"></i><p>No download history</p>';
+                var emptyIcon = document.createElement('i');
+                emptyIcon.className = 'fa-solid fa-history';
+                empty.appendChild(emptyIcon);
+                var emptyText = document.createElement('p');
+                emptyText.textContent = 'No download history';
+                empty.appendChild(emptyText);
                 container.appendChild(empty);
                 document.getElementById('historyPagination').textContent = '';
                 clearBtn.style.display = 'none';
@@ -1405,6 +1420,18 @@
                 historyTotalPages, historyTotal,
                 HISTORY_PER_PAGE, 'goToHistoryPage'
             );
+
+            expandedAlbumIds.forEach(function(albumId) {
+                var grid = document.getElementById('tracks-' + albumId);
+                var icon = document.getElementById('expand-icon-' + albumId);
+                if (grid && icon) {
+                    icon.classList.add('expanded');
+                    grid.style.display = 'block';
+                    renderTrackGrid(grid, albumId);
+                } else {
+                    expandedAlbumIds.delete(albumId);
+                }
+            });
         }
 
         async function clearAllHistory() {
