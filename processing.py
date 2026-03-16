@@ -432,6 +432,9 @@ def _download_tracks(
 
         track_duration_ms = track.get("duration")
 
+        def _skip_check():
+            return track_state.get("skip", False)
+
         try:
             download_result = download_track_youtube(
                 f"{artist_name} {track_title} official audio",
@@ -439,6 +442,7 @@ def _download_tracks(
                 track_title,
                 track_duration_ms,
                 progress_hook=update_progress,
+                skip_check=_skip_check,
             )
         except TrackSkippedException:
             _cleanup_temp_files(temp_file)
