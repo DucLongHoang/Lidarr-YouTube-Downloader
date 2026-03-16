@@ -131,7 +131,7 @@ def _build_common_opts(player_client=None):
 
 def download_track_youtube(
     query, output_path, track_title_original,
-    expected_duration_ms=None, progress_hook=None,
+    expected_duration_ms=None, progress_hook=None, skip_check=None,
 ):
     """Search YouTube and download the best matching track as MP3.
 
@@ -141,10 +141,14 @@ def download_track_youtube(
         track_title_original: Original track title for scoring.
         expected_duration_ms: Expected duration in milliseconds, or None.
         progress_hook: Optional callback for yt-dlp progress events.
+        skip_check: Optional callable; if it returns True, abort and return
+            {"skipped": True}.
 
     Returns:
         True on success, or an error message string on failure.
     """
+    if skip_check and skip_check():
+        return {"skipped": True}
     config = load_config()
     first_client = config.get("yt_player_client", "android") or None
     ydl_opts_search = {
@@ -193,6 +197,8 @@ def download_track_youtube(
         search_queries.append(alt_q3)
 
     for qi, sq in enumerate(search_queries):
+        if skip_check and skip_check():
+            return {"skipped": True}
         if candidates:
             break
         if qi > 0:
@@ -305,6 +311,8 @@ def download_track_youtube(
         }
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
+    if skip_check and skip_check():
+        return {"skipped": True}
     best = candidates[0]
     logger.info(
         f"   Best match: '{best['title']}'"

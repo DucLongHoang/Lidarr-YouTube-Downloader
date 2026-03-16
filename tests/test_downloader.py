@@ -173,3 +173,37 @@ class TestDownloadTrackYoutubeReturnType:
         assert isinstance(result, dict)
         assert result["success"] is False
         assert "error_message" in result
+
+
+class TestSkipCheck:
+    """skip_check callback aborts search early."""
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    def test_skip_check_true_returns_skipped(self, mock_ydl_cls):
+        from downloader import download_track_youtube
+        result = download_track_youtube(
+            "Artist Track official audio",
+            "/tmp/test_output",
+            "Track",
+            expected_duration_ms=200000,
+            progress_hook=None,
+            skip_check=lambda: True,
+        )
+        assert result.get("skipped") is True
+        mock_ydl_cls.assert_not_called()
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    def test_skip_check_false_continues(self, mock_ydl_cls):
+        mock_ydl = mock_ydl_cls.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {"entries": []}
+        from downloader import download_track_youtube
+        result = download_track_youtube(
+            "Artist Track official audio",
+            "/tmp/test_output",
+            "Track",
+            expected_duration_ms=200000,
+            progress_hook=None,
+            skip_check=lambda: False,
+        )
+        assert result.get("skipped") is not True
+        assert result.get("success") is False
