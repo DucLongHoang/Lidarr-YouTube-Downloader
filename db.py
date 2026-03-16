@@ -121,7 +121,10 @@ def _drop_legacy_tables(conn):
             ", ".join(dropped),
         )
         for table in dropped:
-            conn.execute(f"DROP TABLE {table}")
+            if table not in _LEGACY_TABLES:
+                continue
+            # Table name from hardcoded allowlist; safe to interpolate.
+            conn.execute("DROP TABLE IF EXISTS " + table)  # nosemgrep
         conn.commit()
 
 
