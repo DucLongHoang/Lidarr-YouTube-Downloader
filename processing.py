@@ -89,17 +89,11 @@ def process_album_download(album_id, force=False):
         download_process["stop"] = False
         download_process["result_success"] = True
         download_process["result_partial"] = False
-        download_process["progress"] = {
-            "current": 0,
-            "total": 0,
-            "percent": "0%",
-            "speed": "N/A",
-            "overall_percent": 0,
-        }
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
         download_process["album_id"] = album_id
         download_process["album_title"] = ""
         download_process["artist_name"] = ""
-        download_process["current_track_title"] = ""
         download_process["cover_url"] = ""
 
     failed_tracks = []
@@ -237,6 +231,20 @@ def process_album_download(album_id, force=False):
             "cover_url": download_process.get("cover_url", ""),
             "lidarr_album_path": lidarr_album_path,
         }
+        download_process["tracks"] = [
+            {
+                "track_title": t["title"],
+                "track_number": int(t.get("trackNumber", i + 1)),
+                "status": "pending",
+                "youtube_url": "",
+                "youtube_title": "",
+                "progress_percent": "",
+                "progress_speed": "",
+                "error_message": "",
+                "skip": False,
+            }
+            for i, t in enumerate(tracks_to_download)
+        ]
         failed_tracks, total_downloaded_size = _download_tracks(
             tracks_to_download, album_path, album, album_ctx,
         )
@@ -312,11 +320,11 @@ def process_album_download(album_id, force=False):
     finally:
         with queue_lock:
             download_process["active"] = False
-            download_process["progress"] = {}
+            download_process["tracks"] = []
+            download_process["current_track_index"] = -1
             download_process["album_id"] = None
             download_process["album_title"] = ""
             download_process["artist_name"] = ""
-            download_process["current_track_title"] = ""
             download_process["cover_url"] = ""
 
 
@@ -340,6 +348,19 @@ def _filter_tracks(tracks, force, album_path):
                 continue
         tracks_to_download.append(t)
     return tracks_to_download
+
+
+def _cleanup_temp_files(temp_file):
+    """Remove temp download files for all common extensions."""
+    for ext in [".mp3", ".webm", ".m4a", ".part", ""]:
+        tmp = temp_file + ext
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError as rm_err:
+                logger.debug(
+                    "Failed to remove temp file %s: %s", tmp, rm_err,
+                )
 
 
 def _download_tracks(
@@ -370,27 +391,34 @@ def _download_tracks(
     failed_tracks = []
     total_downloaded_size = 0
 
-    for idx, track in enumerate(tracks_to_download, 1):
+    for idx, track in enumerate(tracks_to_download):
         if download_process["stop"]:
             logger.warning("Download stopped by user")
             break
 
+        download_process["current_track_index"] = idx
+        track_state = download_process["tracks"][idx]
+
+        if track_state.get("skip"):
+            track_state["status"] = "skipped"
+            logger.info(
+                "Track %d/%d skipped: %s",
+                idx + 1, len(tracks_to_download),
+                track["title"],
+            )
+            continue
+
         track_title = track["title"]
         try:
-            track_num = int(track.get("trackNumber", idx))
+            track_num = int(track.get("trackNumber", idx + 1))
         except (ValueError, TypeError):
-            track_num = idx
+            track_num = idx + 1
 
-        download_process["current_track_title"] = track_title
-        download_process["progress"]["current"] = idx
-        download_process["progress"]["total"] = len(tracks_to_download)
-        download_process["progress"]["overall_percent"] = int(
-            (idx / len(tracks_to_download)) * 100
-        )
+        track_state["status"] = "searching"
 
         logger.info(
-            f"Downloading track {idx}/{len(tracks_to_download)}:"
-            f" {track_title}"
+            "Downloading track %d/%d: %s",
+            idx + 1, len(tracks_to_download), track_title,
         )
 
         sanitized_track = sanitize_filename(track_title)
@@ -403,18 +431,39 @@ def _download_tracks(
         )
 
         track_duration_ms = track.get("duration")
-        download_result = download_track_youtube(
-            f"{artist_name} {track_title} official audio",
-            temp_file,
-            track_title,
-            track_duration_ms,
-            progress_hook=update_progress,
-        )
+
+        try:
+            download_result = download_track_youtube(
+                f"{artist_name} {track_title} official audio",
+                temp_file,
+                track_title,
+                track_duration_ms,
+                progress_hook=update_progress,
+            )
+        except TrackSkippedException:
+            _cleanup_temp_files(temp_file)
+            track_state["status"] = "skipped"
+            logger.info("Track %d skipped during download: %s",
+                        idx + 1, track_title)
+            continue
+
+        if download_result.get("skipped"):
+            track_state["status"] = "skipped"
+            logger.info("Track %d skipped: %s", idx + 1, track_title)
+            continue
+
         actual_file = temp_file + ".mp3"
 
         if download_result.get("success") and os.path.exists(actual_file):
+            track_state["status"] = "tagging"
+            track_state["youtube_url"] = download_result.get(
+                "youtube_url", "",
+            )
+            track_state["youtube_title"] = download_result.get(
+                "youtube_title", "",
+            )
             logger.info(
-                f"Track downloaded successfully: {track_title}"
+                "Track downloaded successfully: %s", track_title,
             )
             time.sleep(0.5)
             logger.info("Adding metadata tags...")
@@ -431,6 +480,7 @@ def _download_tracks(
             except OSError:
                 pass
             shutil.move(actual_file, final_file)
+            track_state["status"] = "done"
             try:
                 models.add_track_download(
                     album_id=album_id, album_title=album_title,
@@ -439,11 +489,11 @@ def _download_tracks(
                     error_message="",
                     youtube_url=download_result.get("youtube_url", ""),
                     youtube_title=download_result.get(
-                        "youtube_title", ""
+                        "youtube_title", "",
                     ),
                     match_score=download_result.get("match_score", 0.0),
                     duration_seconds=download_result.get(
-                        "duration_seconds", 0
+                        "duration_seconds", 0,
                     ),
                     album_path=album_path,
                     lidarr_album_path=lidarr_album_path,
@@ -456,19 +506,15 @@ def _download_tracks(
                 )
         else:
             fail_reason = download_result.get(
-                "error_message", "Download failed or file not found"
+                "error_message", "Download failed or file not found",
             )
             logger.warning(
-                f"Failed to download track: {track_title}"
-                f" -- {fail_reason}"
+                "Failed to download track: %s -- %s",
+                track_title, fail_reason,
             )
-            for ext in [".mp3", ".webm", ".m4a", ".part", ""]:
-                tmp = temp_file + ext
-                if os.path.exists(tmp):
-                    try:
-                        os.remove(tmp)
-                    except OSError as rm_err:
-                        logger.debug("Failed to remove temp file %s: %s", tmp, rm_err)
+            _cleanup_temp_files(temp_file)
+            track_state["status"] = "failed"
+            track_state["error_message"] = fail_reason
             failed_tracks.append({
                 "title": track_title,
                 "reason": fail_reason,
@@ -491,12 +537,6 @@ def _download_tracks(
                     "Failed to record track download for '%s' (album %d)",
                     track_title, album_id, exc_info=True,
                 )
-
-        download_process["progress"]["current"] = idx
-        download_process["progress"]["total"] = len(tracks_to_download)
-        download_process["progress"]["overall_percent"] = int(
-            (idx / len(tracks_to_download)) * 100
-        )
 
     return failed_tracks, total_downloaded_size
 

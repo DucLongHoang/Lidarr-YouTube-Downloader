@@ -71,6 +71,14 @@ class TestDownloadTracks:
         mock_dl.side_effect = create_mp3
 
         download_process["stop"] = False
+        download_process["tracks"] = [
+            {"track_title": track["title"],
+             "track_number": int(track["trackNumber"]),
+             "status": "pending", "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        download_process["current_track_index"] = -1
 
         album_ctx = _make_album_ctx(
             cover_url="http://cover.jpg",
@@ -87,6 +95,8 @@ class TestDownloadTracks:
         assert tracks[0]["youtube_url"] == (
             "https://youtube.com/watch?v=abc"
         )
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
 
     @patch("processing.download_track_youtube")
     @patch("processing.load_config", return_value={
@@ -113,6 +123,14 @@ class TestDownloadTracks:
         }
 
         download_process["stop"] = False
+        download_process["tracks"] = [
+            {"track_title": track["title"],
+             "track_number": int(track["trackNumber"]),
+             "status": "pending", "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        download_process["current_track_index"] = -1
 
         failed, size = _download_tracks(
             [track], album_path, {"tracks": [track]},
@@ -124,6 +142,8 @@ class TestDownloadTracks:
         assert len(tracks) == 1
         assert tracks[0]["success"] == 0
         assert tracks[0]["error_message"] == "No suitable match"
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
 
 
 class TestTrackStateModel:
@@ -182,3 +202,102 @@ class TestTrackStateModel:
         # cleanup
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
+
+
+class TestTrackStateTransitions:
+    """_download_tracks populates tracks list and handles skip."""
+
+    @patch("processing.download_track_youtube")
+    @patch("processing.tag_mp3")
+    @patch("processing.create_xml_metadata")
+    @patch("processing.load_config", return_value={"xml_metadata_enabled": False})
+    def test_tracks_state_transitions(
+        self, mock_config, mock_xml, mock_tag, mock_dl, tmp_path,
+    ):
+        from processing import _download_tracks, download_process
+
+        def create_mp3(*args, **kwargs):
+            temp_path = args[1]
+            open(temp_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": "https://youtube.com/watch?v=abc",
+                "youtube_title": "Title",
+                "match_score": 0.9,
+                "duration_seconds": 200,
+            }
+        mock_dl.side_effect = create_mp3
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        tracks = [
+            {"title": "Track 1", "trackNumber": 1, "duration": 200000},
+            {"title": "Track 2", "trackNumber": 2, "duration": 180000},
+        ]
+        download_process["tracks"] = [
+            {"track_title": t["title"], "track_number": int(t["trackNumber"]),
+             "status": "pending", "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False}
+            for t in tracks
+        ]
+        download_process["current_track_index"] = -1
+        download_process["stop"] = False
+        failed, size = _download_tracks(
+            tracks, album_path, {}, _make_album_ctx(),
+        )
+        assert len(failed) == 0
+        assert download_process["tracks"][0]["status"] == "done"
+        assert download_process["tracks"][1]["status"] == "done"
+        assert download_process["tracks"][0]["youtube_url"] == (
+            "https://youtube.com/watch?v=abc"
+        )
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+
+    @patch("processing.download_track_youtube")
+    def test_pre_skipped_track_never_downloads(self, mock_dl, tmp_path):
+        from processing import _download_tracks, download_process
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        tracks = [
+            {"title": "Track 1", "trackNumber": 1, "duration": 200000},
+        ]
+        download_process["tracks"] = [
+            {"track_title": "Track 1", "track_number": 1,
+             "status": "pending", "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": True},
+        ]
+        download_process["current_track_index"] = -1
+        download_process["stop"] = False
+        failed, size = _download_tracks(
+            tracks, album_path, {}, _make_album_ctx(),
+        )
+        mock_dl.assert_not_called()
+        assert download_process["tracks"][0]["status"] == "skipped"
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+
+    @patch("processing.download_track_youtube")
+    def test_stop_all_still_stops(self, mock_dl, tmp_path):
+        from processing import _download_tracks, download_process
+        download_process["stop"] = True
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        tracks = [
+            {"title": "Track 1", "trackNumber": 1, "duration": 200000},
+        ]
+        download_process["tracks"] = [
+            {"track_title": "Track 1", "track_number": 1,
+             "status": "pending", "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        download_process["current_track_index"] = -1
+        failed, size = _download_tracks(
+            tracks, album_path, {}, _make_album_ctx(),
+        )
+        mock_dl.assert_not_called()
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+        download_process["stop"] = False
