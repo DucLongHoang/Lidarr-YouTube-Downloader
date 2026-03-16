@@ -185,6 +185,24 @@ class TestTrackStateModel:
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
 
+    def test_update_progress_sets_downloading_status(self):
+        from processing import download_process, update_progress
+        download_process["tracks"] = [
+            {"track_title": "T1", "track_number": 1, "status": "searching",
+             "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        download_process["current_track_index"] = 0
+        update_progress({
+            "status": "downloading",
+            "_percent_str": "10%",
+            "_speed_str": "1MiB/s",
+        })
+        assert download_process["tracks"][0]["status"] == "downloading"
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+
     def test_update_progress_raises_on_skip_flag(self):
         from processing import (
             TrackSkippedException, download_process, update_progress,
@@ -301,3 +319,55 @@ class TestTrackStateTransitions:
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
         download_process["stop"] = False
+
+    @patch("processing.download_track_youtube")
+    def test_skip_during_download_sets_skipped(self, mock_dl, tmp_path):
+        from processing import (
+            TrackSkippedException, _download_tracks, download_process,
+        )
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        tracks = [
+            {"title": "Track 1", "trackNumber": 1, "duration": 200000},
+        ]
+        mock_dl.side_effect = TrackSkippedException()
+        download_process["tracks"] = [
+            {"track_title": "Track 1", "track_number": 1,
+             "status": "pending", "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        download_process["current_track_index"] = -1
+        download_process["stop"] = False
+        failed, size = _download_tracks(
+            tracks, album_path, {}, _make_album_ctx(),
+        )
+        assert len(failed) == 0
+        assert download_process["tracks"][0]["status"] == "skipped"
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+
+    @patch("processing.download_track_youtube")
+    def test_skipped_result_sets_skipped(self, mock_dl, tmp_path):
+        from processing import _download_tracks, download_process
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        tracks = [
+            {"title": "Track 1", "trackNumber": 1, "duration": 200000},
+        ]
+        mock_dl.return_value = {"skipped": True}
+        download_process["tracks"] = [
+            {"track_title": "Track 1", "track_number": 1,
+             "status": "pending", "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        download_process["current_track_index"] = -1
+        download_process["stop"] = False
+        failed, size = _download_tracks(
+            tracks, album_path, {}, _make_album_ctx(),
+        )
+        assert len(failed) == 0
+        assert download_process["tracks"][0]["status"] == "skipped"
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1

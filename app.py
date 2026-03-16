@@ -285,6 +285,8 @@ def api_skip_track():
     track_index = data.get("track_index")
     if track_index is None:
         return jsonify({"error": "track_index required"}), 400
+    if not isinstance(track_index, int):
+        return jsonify({"error": "track_index must be an integer"}), 400
     with queue_lock:
         if not download_process["active"]:
             return jsonify({"error": "No active download"}), 409
@@ -382,6 +384,11 @@ def api_queue_tracks(album_id):
             artist = album.get("artist", {}).get("artistName", "")
             title = album.get("title", "")
             if artist and title:
+                logger.debug(
+                    "Lidarr tracks unavailable for album %d,"
+                    " falling back to iTunes: %s - %s",
+                    album_id, artist, title,
+                )
                 tracks = get_itunes_tracks(artist, title)
     result = [
         {

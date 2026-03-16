@@ -5,6 +5,7 @@ downloads (search, download, tag, import to Lidarr), and processes
 the download queue.
 """
 
+import copy
 import logging
 import os
 import shutil
@@ -53,16 +54,23 @@ def update_progress(d):
         idx = download_process.get("current_track_index", -1)
         if idx >= 0 and idx < len(download_process["tracks"]):
             track = download_process["tracks"][idx]
+            track["status"] = "downloading"
             track["progress_percent"] = d.get("_percent_str", "0%").strip()
             track["progress_speed"] = d.get("_speed_str", "N/A").strip()
             if track.get("skip"):
+                logger.debug(
+                    "Skip flag detected for track %d: %s",
+                    idx, track.get("track_title", ""),
+                )
                 raise TrackSkippedException()
 
 
 def get_download_status():
     """Return a snapshot of the current download process state."""
     with queue_lock:
-        return dict(download_process)
+        snapshot = dict(download_process)
+        snapshot["tracks"] = copy.deepcopy(download_process["tracks"])
+        return snapshot
 
 
 def stop_download():
@@ -554,12 +562,18 @@ def _handle_post_download(
     Returns:
         A result dict if download should stop (all failed), else None.
     """
+    skipped_count = sum(
+        1 for t in download_process.get("tracks", [])
+        if t.get("status") == "skipped"
+    )
+    attempted_count = len(tracks_to_download) - skipped_count
+
     if failed_tracks:
         failed_list = "\n".join(
             [f"* {t['title']}" for t in failed_tracks]
         )
 
-        if len(failed_tracks) == len(tracks_to_download):
+        if attempted_count > 0 and len(failed_tracks) == attempted_count:
             send_notifications(
                 f"Download Failed (All Tracks)\n"
                 f"Album: {album_title}\nArtist: {artist_name}\n\n"
@@ -586,7 +600,7 @@ def _handle_post_download(
                 album_title=album_title,
                 artist_name=artist_name,
                 details=(
-                    f"All {len(tracks_to_download)} track(s)"
+                    f"All {attempted_count} track(s)"
                     " failed to download"
                 ),
             )
@@ -621,7 +635,7 @@ def _handle_post_download(
             artist_name=artist_name,
             details=(
                 f"{len(failed_tracks)} track(s) failed to download"
-                f" out of {len(tracks_to_download)}"
+                f" out of {attempted_count}"
             ),
             total_file_size=total_downloaded_size,
         )
@@ -633,15 +647,15 @@ def _handle_post_download(
             artist_name=artist_name,
             details=(
                 f"Successfully downloaded"
-                f" {len(tracks_to_download)} track(s)"
+                f" {attempted_count} track(s)"
             ),
             total_file_size=total_downloaded_size,
         )
         send_notifications(
             f"Download successful\n"
             f"Album: {album_title}\nArtist: {artist_name}\n"
-            f"Tracks: {len(tracks_to_download)}"
-            f"/{len(tracks_to_download)}",
+            f"Tracks: {attempted_count}"
+            f"/{attempted_count}",
             log_type="download_success",
             embed_data={
                 "title": "Download Successful",
@@ -650,8 +664,8 @@ def _handle_post_download(
                 "fields": [{
                     "name": "Tracks",
                     "value": (
-                        f"{len(tracks_to_download)}"
-                        f"/{len(tracks_to_download)}"
+                        f"{attempted_count}"
+                        f"/{attempted_count}"
                     ),
                     "inline": True,
                 }],
