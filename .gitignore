@@ -27,3 +27,4 @@ pytest-of-*/
 *.log
 tmp/
 .serena/
+.superpowers/
