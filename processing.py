@@ -77,6 +77,10 @@ def stop_download():
     """Signal the active download to stop and clear the queue."""
     with queue_lock:
         download_process["stop"] = True
+        idx = download_process.get("current_track_index", -1)
+        tracks = download_process.get("tracks", [])
+        if 0 <= idx < len(tracks):
+            tracks[idx]["skip"] = True
         models.clear_queue()
 
 
@@ -441,22 +445,73 @@ def _download_tracks(
         track_duration_ms = track.get("duration")
 
         def _skip_check(ts=track_state):
-            return ts.get("skip", False)
+            return ts.get("skip", False) or download_process["stop"]
 
-        try:
-            download_result = download_track_youtube(
-                f"{artist_name} {track_title} official audio",
-                temp_file,
-                track_title,
-                track_duration_ms,
-                progress_hook=update_progress,
-                skip_check=_skip_check,
-            )
-        except TrackSkippedException:
+        # Run download in a daemon thread so skip/stop can
+        # take effect immediately without waiting for yt-dlp
+        # blocking calls (extract_info, download) to finish.
+        dl_result_box = [None]
+        dl_error_box = [None]
+
+        def _run_download():
+            try:
+                dl_result_box[0] = download_track_youtube(
+                    f"{artist_name} {track_title} official audio",
+                    temp_file,
+                    track_title,
+                    track_duration_ms,
+                    progress_hook=update_progress,
+                    skip_check=_skip_check,
+                )
+            except TrackSkippedException:
+                dl_error_box[0] = "skipped"
+            except Exception as exc:
+                dl_error_box[0] = exc
+
+        dl_thread = threading.Thread(
+            target=_run_download, daemon=True,
+        )
+        dl_thread.start()
+
+        # Poll until thread finishes or skip/stop is requested
+        while dl_thread.is_alive():
+            dl_thread.join(timeout=0.5)
+            if dl_thread.is_alive() and (
+                track_state.get("skip") or download_process["stop"]
+            ):
+                logger.info(
+                    "Track %d skip/stop requested, abandoning: %s",
+                    idx + 1, track_title,
+                )
+                _cleanup_temp_files(temp_file)
+                track_state["status"] = "skipped"
+                break
+
+        if track_state["status"] == "skipped":
+            continue
+
+        if dl_error_box[0] == "skipped":
             _cleanup_temp_files(temp_file)
             track_state["status"] = "skipped"
             logger.info("Track %d skipped during download: %s",
                         idx + 1, track_title)
+            continue
+
+        if isinstance(dl_error_box[0], Exception):
+            logger.error(
+                "Track %d download error: %s",
+                idx + 1, dl_error_box[0],
+            )
+            track_state["status"] = "failed"
+            track_state["error_message"] = str(dl_error_box[0])[:200]
+            failed_tracks.append(track)
+            continue
+
+        download_result = dl_result_box[0]
+        if download_result is None:
+            track_state["status"] = "failed"
+            track_state["error_message"] = "Download returned no result"
+            failed_tracks.append(track)
             continue
 
         if download_result.get("skipped"):
@@ -465,6 +520,14 @@ def _download_tracks(
             continue
 
         actual_file = temp_file + ".mp3"
+
+        # Check skip one more time after download completed
+        if track_state.get("skip") or download_process["stop"]:
+            _cleanup_temp_files(temp_file)
+            track_state["status"] = "skipped"
+            logger.info("Track %d skipped after download: %s",
+                        idx + 1, track_title)
+            continue
 
         if download_result.get("success") and os.path.exists(actual_file):
             track_state["status"] = "tagging"
