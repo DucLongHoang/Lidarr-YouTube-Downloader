@@ -1337,12 +1337,6 @@
                 header.className = 'queue-item-header';
                 header.onclick = function() { toggleQueueTracks(item.id); };
 
-                // Expand chevron
-                var chevron = document.createElement('i');
-                chevron.className = 'fa-solid fa-chevron-right queue-expand-icon';
-                if (expandedQueueIds.has(item.id)) chevron.classList.add('expanded');
-                header.appendChild(chevron);
-
                 // Position number
                 var pos = document.createElement('div');
                 pos.className = 'queue-position';
