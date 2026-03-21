@@ -1197,8 +1197,7 @@
             tracks.forEach(function(track, i) {
                 var row = document.createElement('div');
                 row.className = 'current-track-row';
-                var isActive = (i === data.current_track_index &&
-                    (track.status === 'downloading' || track.status === 'searching' || track.status === 'tagging' || track.status === 'fingerprinting'));
+                var isActive = (track.status === 'downloading' || track.status === 'searching' || track.status === 'tagging' || track.status === 'fingerprinting');
                 if (isActive) {
                     row.classList.add('active');
                 } else {

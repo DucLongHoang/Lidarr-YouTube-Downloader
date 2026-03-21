@@ -650,6 +650,19 @@
                     <div class="label-description">Get a free key at <a href="https://acoustid.org/new-application" target="_blank" rel="noopener">acoustid.org</a></div>
                 </label>
                 <input type="text" id="acoustidApiKey" placeholder="Enter AcoustID API key">
+	    </div>
+	    <div class="input-group">
+		<label>
+                    Concurrent Track Downloads
+                    <div class="label-description">Number of tracks downloaded simultaneously per album. Higher values speed up downloads but increase the risk of being rate-limited or banned by YouTube. Recommended: 2.</div>
+                </label>
+                <select id="concurrentTracks" style="max-width:120px;">
+                    <option value="1">1 (safe)</option>
+                    <option value="2">2 (default)</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5 (risky)</option>
+                </select>
             </div>
         </div>
 
@@ -720,6 +733,10 @@
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                         <input type="checkbox" id="fw_tribute" value="tribute" style="width: auto; cursor: pointer;">
                         <span>🏆 Tribute</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_reaction" value="reaction" style="width: auto; cursor: pointer;">
+                        <span>😲 Reaction</span>
                     </label>
                 </div>
             </div>
@@ -994,8 +1011,8 @@
             document.getElementById('lidarrPath').value = conf.lidarr_path || '';
 
 
-            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"];
-            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute'];
+            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction"];
+            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute', 'fw_reaction'];
 
             forbiddenWordIds.forEach(id => {
                 const checkbox = document.getElementById(id);
@@ -1006,6 +1023,7 @@
 
 
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
+            document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
 
             // Discord
             document.getElementById('discordWebhook').value = conf.discord_webhook_url || '';
@@ -1095,16 +1113,20 @@
         async function updateYtdlp() {
             const btn = document.getElementById('ytdlpUpdateBtn');
             btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating yt-dlp...';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
             try {
                 const res = await fetch('/api/ytdlp/update', { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
                     document.getElementById('ytdlpVersion').textContent = data.new_version;
-                    if (data.old_version === data.new_version) {
+                    if (!data.updated) {
                         showToast('success', 'Already Up to Date', `yt-dlp ${data.new_version} is the latest version.`);
                     } else {
-                        showToast('success', 'Update Successful', `yt-dlp updated from ${data.old_version} to ${data.new_version}`);
+                        showToast('info', 'Update Installed', `yt-dlp updated from ${data.old_version} to ${data.new_version}. Restart required to apply.`);
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-power-off"></i> Restart App';
+                        btn.onclick = restartApp;
+                        return;
                     }
                 } else {
                     showToast('error', 'Update Failed', data.message || 'Unknown error');
@@ -1114,6 +1136,28 @@
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Check for Updates';
+                btn.onclick = updateYtdlp;
+            }
+        }
+
+        async function restartApp() {
+            const btn = document.getElementById('ytdlpUpdateBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Restarting...';
+            try {
+                const res = await fetch('/api/restart', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', 'Restarting', 'App is restarting, page will reload shortly...');
+                    setTimeout(() => window.location.reload(), 4000);
+                } else {
+                    showToast('error', 'Restart Failed', data.message || 'Unknown error');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-power-off"></i> Restart App';
+                }
+            } catch (e) {
+                showToast('info', 'Restarting', 'App is restarting...');
+                setTimeout(() => window.location.reload(), 4000);
             }
         }
 
@@ -1227,6 +1271,7 @@
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
                     duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
+                    concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
                     acoustid_api_key: document.getElementById('acoustidApiKey').value
                 })
             });

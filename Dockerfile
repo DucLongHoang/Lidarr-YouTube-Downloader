@@ -1,13 +1,14 @@
 FROM python:alpine
 
-RUN apk add --no-cache ffmpeg gosu ca-certificates chromaprint
+RUN apk update && apk upgrade --no-cache && \
+    apk add --no-cache ffmpeg gosu ca-certificates deno chromaprint
 
 WORKDIR /app
 
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --upgrade -r requirements.txt
 
 COPY . .
 

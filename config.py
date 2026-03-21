@@ -19,7 +19,7 @@ ALLOWED_CONFIG_KEYS = {
     "telegram_enabled", "telegram_log_types", "download_path",
     "lidarr_path", "forbidden_words", "duration_tolerance",
     "scheduler_enabled", "scheduler_auto_download",
-    "xml_metadata_enabled", "yt_cookies_file", "yt_force_ipv4",
+    "xml_metadata_enabled", "concurrent_tracks", "yt_cookies_file", "yt_force_ipv4",
     "yt_player_client", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
@@ -60,6 +60,7 @@ def load_config():
             "instrumental", "acapella", "tribute",
         ],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
+        "concurrent_tracks": int(os.getenv("CONCURRENT_TRACKS", "2")),
         "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
         "yt_force_ipv4": (
             os.getenv("YT_FORCE_IPV4", "true").lower() == "true"

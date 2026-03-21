@@ -9,6 +9,8 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -50,7 +52,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.2"
+VERSION = "1.5.5"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
 rate_limit_store = {}
@@ -207,6 +209,23 @@ def api_ytdlp_version():
     return jsonify({"version": get_ytdlp_version()})
 
 
+def _pip_update_ytdlp():
+    old_version = get_ytdlp_version()
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp[default]"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            return None, None, result.stderr[-500:] if result.stderr else "pip failed"
+        new_version = get_ytdlp_version()
+        return old_version, new_version, None
+    except subprocess.TimeoutExpired:
+        return None, None, "Update timed out (120s)"
+    except Exception as e:
+        return None, None, str(e)
+
+
 @app.route("/api/ytdlp/update", methods=["POST"])
 def api_ytdlp_update():
     client_ip = request.remote_addr or "unknown"
@@ -217,34 +236,44 @@ def api_ytdlp_update():
             "success": False,
             "message": "Update already in progress or rate limited",
         }), 429
-    old_version = get_ytdlp_version()
+    old_version, new_version, error = _pip_update_ytdlp()
+    if error:
+        return jsonify({"success": False, "message": error})
+    updated = old_version != new_version
+    return jsonify({
+        "success": True,
+        "old_version": old_version,
+        "new_version": new_version,
+        "updated": updated,
+        "restart_required": updated,
+    })
+
+
+# --- Restart ---
+
+
+def _exec_restart():
     try:
-        import subprocess
+        os.closerange(3, 65536)
+    except Exception:
+        pass
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
-        import yt_dlp
 
-        result = subprocess.run(
-            ["pip", "install", "-U", "yt-dlp"],
-            capture_output=True, text=True, timeout=120,
-        )
-        if result.returncode == 0:
-            import importlib
-
-            importlib.reload(yt_dlp)
-            new_version = get_ytdlp_version()
-            return jsonify({
-                "success": True,
-                "old_version": old_version,
-                "new_version": new_version,
-            })
+@app.route("/api/restart", methods=["POST"])
+def api_restart():
+    if download_process.get("active"):
         return jsonify({
             "success": False,
-            "message": result.stderr[-500:] if result.stderr else "Update failed",
+            "message": "A download is in progress. Stop it before restarting.",
         })
-    except subprocess.TimeoutExpired:
-        return jsonify({"success": False, "message": "Update timed out (120s)"})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
+
+    def _do_restart():
+        time.sleep(0.5)
+        _exec_restart()
+
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return jsonify({"success": True})
 
 
 # --- Download routes ---
@@ -610,54 +639,149 @@ def api_youtube_search():
     try:
         items = []
         seen_urls = set()
+
+        def _entry_watch_url(entry):
+            wp = entry.get("webpage_url", "")
+            if wp:
+                return wp
+            vid = entry.get("id", "")
+            if vid:
+                return f"https://www.youtube.com/watch?v={vid}"
+            return entry.get("url", "")
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                music_results = ydl.extract_info(
-                    f"ytmsearch10:{query}", download=False
-                )
-                for entry in (music_results or {}).get("entries", []):
-                    url = entry.get("url", "")
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        items.append({
-                            "title": entry.get("title", ""),
-                            "url": url,
-                            "duration": entry.get("duration", 0),
-                            "channel": (
-                                entry.get("channel", "")
-                                or entry.get("uploader", "")
-                                or ""
-                            ),
-                            "thumbnail": entry.get("thumbnail", ""),
-                            "source": "youtube_music",
-                        })
-            except Exception as e:
-                logger.warning("YouTube Music search failed: %s", e)
-            try:
-                yt_results = ydl.extract_info(
-                    f"ytsearch5:{query}", download=False
-                )
-                for entry in (yt_results or {}).get("entries", []):
-                    url = entry.get("url", "")
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        items.append({
-                            "title": entry.get("title", ""),
-                            "url": url,
-                            "duration": entry.get("duration", 0),
-                            "channel": (
-                                entry.get("channel", "")
-                                or entry.get("uploader", "")
-                                or ""
-                            ),
-                            "thumbnail": entry.get("thumbnail", ""),
-                            "source": "youtube",
-                        })
-            except Exception as e:
-                logger.warning("YouTube search failed: %s", e)
+            yt_results = ydl.extract_info(f"ytsearch10:{query}", download=False)
+            for entry in (yt_results or {}).get("entries", []):
+                vid = entry.get("id", "")
+                if vid and (
+                    vid.startswith("RD")
+                    or vid.startswith("PL")
+                    or vid.startswith("UU")
+                    or len(vid) != 11
+                ):
+                    continue
+                url = _entry_watch_url(entry)
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    items.append({
+                        "title": entry.get("title", ""),
+                        "url": url,
+                        "duration": entry.get("duration", 0),
+                        "channel": (
+                            entry.get("channel", "")
+                            or entry.get("uploader", "")
+                            or ""
+                        ),
+                        "thumbnail": entry.get("thumbnail", ""),
+                    })
         return jsonify({"results": items})
     except Exception as e:
         return jsonify({"results": [], "error": str(e)[:200]}), 500
+
+
+# --- YouTube audio stream proxy ---
+
+
+_audio_stream_cache = {}
+
+
+@app.route("/api/youtube/stream", methods=["GET"])
+def api_youtube_stream():
+    import requests as http_requests
+
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"yt_stream:{client_ip}", rate_limit_store, window=5, max_requests=6
+    ):
+        return "Too many requests", 429
+    url = request.args.get("url", "").strip()
+    if not url:
+        return "Missing url", 400
+
+    import yt_dlp
+
+    now = time.time()
+    cached = _audio_stream_cache.get(url)
+    if cached and now - cached["ts"] < 300:
+        audio_url = cached["audio_url"]
+        http_headers = cached["http_headers"]
+    else:
+        config = load_config()
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "format": "bestaudio/best",
+            "noplaylist": True,
+        }
+        cookies_path = (config.get("yt_cookies_file") or "").strip()
+        if cookies_path and os.path.exists(cookies_path):
+            ydl_opts["cookiefile"] = cookies_path
+        if config.get("yt_force_ipv4", True):
+            ydl_opts["source_address"] = "0.0.0.0"
+        pc = config.get("yt_player_client", "android")
+        if pc:
+            ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if not info:
+                return "Could not extract info", 404
+            audio_url = ""
+            http_headers = info.get("http_headers", {})
+            requested = info.get("requested_formats") or []
+            if requested:
+                for fmt in requested:
+                    if fmt.get("vcodec") == "none" or fmt.get("acodec") != "none":
+                        audio_url = fmt.get("url", "")
+                        if fmt.get("http_headers"):
+                            http_headers = fmt["http_headers"]
+                        break
+            if not audio_url:
+                audio_url = info.get("url", "")
+            if not audio_url:
+                return "No audio stream found", 404
+            _audio_stream_cache[url] = {
+                "audio_url": audio_url,
+                "http_headers": http_headers,
+                "ts": now,
+            }
+            for k in list(_audio_stream_cache):
+                if now - _audio_stream_cache[k]["ts"] > 600:
+                    del _audio_stream_cache[k]
+        except Exception as e:
+            logger.warning("Stream extraction failed: %s", e)
+            return str(e)[:200], 500
+
+    proxy_headers = {
+        "User-Agent": http_headers.get("User-Agent", ""),
+        "Referer": http_headers.get("Referer", ""),
+        "Accept": "*/*",
+    }
+    range_header = request.headers.get("Range")
+    if range_header:
+        proxy_headers["Range"] = range_header
+
+    try:
+        upstream = http_requests.get(
+            audio_url, headers=proxy_headers, stream=True, timeout=30,
+        )
+        resp_headers = {
+            "Content-Type": upstream.headers.get("Content-Type", "audio/webm"),
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-cache",
+        }
+        if "Content-Length" in upstream.headers:
+            resp_headers["Content-Length"] = upstream.headers["Content-Length"]
+        if "Content-Range" in upstream.headers:
+            resp_headers["Content-Range"] = upstream.headers["Content-Range"]
+        return Response(
+            upstream.iter_content(chunk_size=16384),
+            status=upstream.status_code,
+            headers=resp_headers,
+        )
+    except Exception as e:
+        logger.warning("Stream proxy failed: %s", e)
+        return "Stream unavailable", 502
 
 
 # --- Manual download ---
@@ -895,6 +1019,42 @@ def _execute_manual_download(
         return jsonify({"success": False, "message": str(e)[:200]}), 500
 
 
+# --- Startup yt-dlp auto-update ---
+
+
+def _get_ytdlp_pypi_version():
+    import urllib.request as url_request
+
+    try:
+        req = url_request.Request(
+            "https://pypi.org/pypi/yt-dlp/json",
+            headers={"User-Agent": "lidarr-yt-downloader"},
+        )
+        with url_request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())["info"]["version"]
+    except Exception:
+        return None
+
+
+def _startup_ytdlp_update():
+    current = get_ytdlp_version()
+    logger.info("Checking for yt-dlp updates (installed: %s)...", current)
+    latest = _get_ytdlp_pypi_version()
+    if not latest:
+        logger.warning("Could not reach PyPI to check yt-dlp version")
+        return
+    if current == latest:
+        logger.info("yt-dlp %s is up to date", current)
+        return
+    logger.info("Updating yt-dlp %s -> %s...", current, latest)
+    _, new_version, error = _pip_update_ytdlp()
+    if error:
+        logger.warning("yt-dlp update failed: %s", error)
+        return
+    logger.info("yt-dlp updated %s -> %s, restarting...", current, new_version)
+    _exec_restart()
+
+
 if __name__ == "__main__":
     db.init_db()
     models.reset_downloading_to_queued()
@@ -907,5 +1067,6 @@ if __name__ == "__main__":
     setup_scheduler()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=process_download_queue, daemon=True).start()
+    threading.Thread(target=_startup_ytdlp_update, daemon=True).start()
     logger.info("Application started successfully on http://0.0.0.0:5000")
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)

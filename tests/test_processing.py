@@ -164,8 +164,8 @@ class TestTrackStateModel:
         from processing import TrackSkippedException
         assert issubclass(TrackSkippedException, Exception)
 
-    def test_update_progress_sets_track_fields(self):
-        from processing import download_process, update_progress
+    def test_progress_hook_sets_track_fields(self):
+        from processing import _make_progress_hook, download_process
         download_process["tracks"] = [
             {"track_title": "T1", "track_number": 1, "status": "downloading",
              "youtube_url": "", "youtube_title": "",
@@ -173,7 +173,8 @@ class TestTrackStateModel:
              "error_message": "", "skip": False},
         ]
         download_process["current_track_index"] = 0
-        update_progress({
+        hook = _make_progress_hook(0)
+        hook({
             "status": "downloading",
             "_percent_str": " 45.2% ",
             "_speed_str": " 2.4MiB/s ",
@@ -185,8 +186,8 @@ class TestTrackStateModel:
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
 
-    def test_update_progress_sets_downloading_status(self):
-        from processing import download_process, update_progress
+    def test_progress_hook_sets_downloading_status(self):
+        from processing import _make_progress_hook, download_process
         download_process["tracks"] = [
             {"track_title": "T1", "track_number": 1, "status": "searching",
              "youtube_url": "", "youtube_title": "",
@@ -194,7 +195,8 @@ class TestTrackStateModel:
              "error_message": "", "skip": False},
         ]
         download_process["current_track_index"] = 0
-        update_progress({
+        hook = _make_progress_hook(0)
+        hook({
             "status": "downloading",
             "_percent_str": "10%",
             "_speed_str": "1MiB/s",
@@ -203,9 +205,9 @@ class TestTrackStateModel:
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
 
-    def test_update_progress_raises_on_skip_flag(self):
+    def test_progress_hook_raises_on_skip_flag(self):
         from processing import (
-            TrackSkippedException, download_process, update_progress,
+            TrackSkippedException, _make_progress_hook, download_process,
         )
         download_process["tracks"] = [
             {"track_title": "T1", "track_number": 1, "status": "downloading",
@@ -214,9 +216,10 @@ class TestTrackStateModel:
              "error_message": "", "skip": True},
         ]
         download_process["current_track_index"] = 0
+        hook = _make_progress_hook(0)
         with pytest.raises(TrackSkippedException):
-            update_progress({"status": "downloading",
-                             "_percent_str": "10%", "_speed_str": "1MiB/s"})
+            hook({"status": "downloading",
+                  "_percent_str": "10%", "_speed_str": "1MiB/s"})
         # cleanup
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
