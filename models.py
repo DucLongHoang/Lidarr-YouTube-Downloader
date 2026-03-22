@@ -285,7 +285,9 @@ def mark_track_deleted(track_id):
         (track_id,),
     )
     conn.commit()
-    return dict(row)
+    result = dict(row)
+    result["deleted"] = 1
+    return result
 
 
 # --- Logs ---

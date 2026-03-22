@@ -144,9 +144,10 @@ def download_track_youtube(
         progress_hook: Optional callback for yt-dlp progress events.
         skip_check: Optional callable; if it returns True, abort and return
             {"skipped": True}.
+        banned_urls: Optional set of YouTube URLs to exclude from candidates.
 
     Returns:
-        True on success, or an error message string on failure.
+        Dict with result info on success/failure, or {"skipped": True}.
     """
     if skip_check and skip_check():
         return {"skipped": True}
