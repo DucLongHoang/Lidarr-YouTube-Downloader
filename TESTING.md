@@ -86,6 +86,28 @@ Run after changes to Current Download or Download Queue sections:
 - [ ] **Download Queue**: Expansion state preserved across SSE updates (1-second rebuilds)
 - [ ] **Download Queue**: Remove button still works (doesn't toggle expansion)
 
+## Delete Track + Ban URL Tests
+
+Run after changes to track deletion, URL banning, or related UI:
+
+- [ ] **Downloads page**: Expand album in history — successful tracks show trash icon
+- [ ] **Downloads page**: Failed tracks and deleted tracks do NOT show trash icon
+- [ ] **Downloads page**: Click trash icon — confirmation dialog appears with correct file path
+- [ ] **Downloads page**: Dialog shows XML sidecar note
+- [ ] **Downloads page**: Ban checkbox is checked by default
+- [ ] **Downloads page**: Confirm delete (with ban) — file removed, track shows strikethrough + "deleted" badge
+- [ ] **Downloads page**: Confirm delete (without ban) — file removed, track deleted but no ban created
+- [ ] **Downloads page**: Deleted track has dimmed YouTube link, no trash icon
+- [ ] **Downloads page**: Cancel button closes dialog without action
+- [ ] **Downloads page**: Click outside modal closes dialog
+- [ ] **Logs page**: "URL Banned" option appears in filter dropdown
+- [ ] **Logs page**: Select "URL Banned" filter — shows banned URL cards with orange accent
+- [ ] **Logs page**: Banned URL card shows YouTube link, track context, and Unban button
+- [ ] **Logs page**: Click Unban — card slides out and disappears
+- [ ] **Logs page**: After unban, switching away and back to "URL Banned" filter confirms it's gone
+- [ ] **Re-download**: Queue previously downloaded album — deleted track re-downloads with different URL (banned one skipped)
+- [ ] **Re-download**: Unban a URL, re-download — previously banned URL is now a candidate again
+
 ## Scheduler Tests
 
 Requires scheduler to be enabled in settings:
