@@ -397,6 +397,34 @@
             border-left: 4px solid #8b5cf6;
         }
 
+        .log-card.url_banned { border-left-color: #f97316; }
+        .log-type.url_banned {
+            color: #f97316;
+            background: rgba(249,115,22,0.12);
+        }
+        .btn-unban {
+            background: none;
+            border: 1px solid #f97316;
+            color: #f97316;
+            padding: 0.3rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .btn-unban:hover { background: rgba(249,115,22,0.12); }
+        .ban-url-link {
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 0.8rem;
+            word-break: break-all;
+        }
+        .ban-url-link:hover { text-decoration: underline; }
+
         .log-header {
             display: flex;
             justify-content: space-between;
@@ -772,6 +800,7 @@
                     <option value="import_failed">Import Failed</option>
                     <option value="album_error">Album Error</option>
                     <option value="manual_download">Manual Download</option>
+                    <option value="url_banned">URL Banned</option>
                 </select>
             </div>
             <button class="btn btn-danger" onclick="clearAllLogs()">
@@ -817,6 +846,15 @@
             const div = document.createElement('div');
             div.appendChild(document.createTextNode(str));
             return div.innerHTML;
+        }
+
+        function sanitizeUrl(url) {
+            if (!url) return '';
+            try {
+                var u = new URL(url);
+                if (u.protocol === 'https:' || u.protocol === 'http:') return url;
+            } catch (_) {}
+            return '';
         }
 
         function formatBytes(bytes) {
@@ -933,6 +971,34 @@
         }
 
         async function fetchLogs() {
+            if (currentFilter === 'url_banned') {
+                try {
+                    const res = await fetch(
+                        '/api/banned-urls?page=' + logsCurrentPage + '&per_page=' + LOGS_PER_PAGE
+                    );
+                    const data = await res.json();
+                    logsTotalPages = data.pages;
+                    logsTotal = data.total;
+                    var transformed = data.items.map(function(ban) {
+                        return {
+                            id: 'ban_' + ban.id,
+                            _ban_id: ban.id,
+                            type: 'url_banned',
+                            album_id: ban.album_id,
+                            album_title: ban.album_title,
+                            artist_name: ban.artist_name,
+                            timestamp: ban.banned_at,
+                            youtube_url: ban.youtube_url,
+                            track_title: ban.track_title,
+                            track_number: ban.track_number,
+                        };
+                    });
+                    renderLogs(transformed, data.total);
+                } catch (error) {
+                    console.error('Error fetching banned URLs:', error);
+                }
+                return;
+            }
             try {
                 let url = `/api/logs?page=${logsCurrentPage}&per_page=${LOGS_PER_PAGE}`;
                 if (currentFilter !== 'all') {
@@ -989,13 +1055,42 @@
                 'import_partial': { name: 'Import Partial', icon: 'fa-exclamation-triangle' },
                 'import_failed': { name: 'Import Failed', icon: 'fa-times-circle' },
                 'album_error': { name: 'Album Error', icon: 'fa-exclamation-circle' },
-                'manual_download': { name: 'Manual Download', icon: 'fa-hand-pointer' }
+                'manual_download': { name: 'Manual Download', icon: 'fa-hand-pointer' },
+                'url_banned': { name: 'URL Banned', icon: 'fa-ban' },
             };
             return types[type] || { name: type, icon: 'fa-info-circle' };
         }
 
 
         function renderLogCard(log) {
+            if (log.type === 'url_banned') {
+                var safeUrl = sanitizeUrl(log.youtube_url);
+                var urlHtml = safeUrl
+                    ? '<a class="ban-url-link" href="' + escapeHtml(safeUrl) + '" target="_blank" rel="noopener">' + escapeHtml(log.youtube_url) + '</a>'
+                    : escapeHtml(log.youtube_url || '');
+                var trackNum = log.track_number
+                    ? String(log.track_number).padStart(2, '0') + ' - '
+                    : '';
+                return '<div class="log-card url_banned" id="log-' + escapeHtml(String(log.id)) + '">'
+                    + '<div class="log-header">'
+                    + '<div class="log-info">'
+                    + '<div class="log-type url_banned"><i class="fas fa-ban"></i> URL Banned</div>'
+                    + '<div class="log-album">' + escapeHtml(log.track_title || log.album_title || '') + '</div>'
+                    + '<div class="log-artist">by ' + escapeHtml(log.artist_name || '') + '</div>'
+                    + '</div>'
+                    + '<div class="log-actions">'
+                    + '<button class="btn-unban" onclick="unbanUrl(' + log._ban_id + ',\'' + escapeHtml(String(log.id)) + '\')">'
+                    + '<i class="fas fa-unlock"></i> Unban</button>'
+                    + '</div></div>'
+                    + '<div class="log-details">'
+                    + '<div class="log-details-title">Banned URL:</div>'
+                    + urlHtml
+                    + '<div style="margin-top:0.3rem;font-size:0.75rem;">Track: <strong style="color:var(--text)">'
+                    + escapeHtml(trackNum + (log.track_title || '')) + '</strong></div>'
+                    + '</div>'
+                    + '<div class="log-timestamp"><i class="fas fa-clock"></i> '
+                    + formatTimestamp(log.timestamp) + '</div></div>';
+            }
             const typeInfo = getLogTypeInfo(log.type);
             const canRetry = log.type === 'album_error' || log.type === 'partial_success';
             const retryBtnHtml = (canRetry && failedAlbumId && log.album_id === failedAlbumId)
@@ -1071,6 +1166,27 @@
                 logsTotalPages, logsTotal,
                 LOGS_PER_PAGE, 'goToLogsPage'
             );
+        }
+
+
+        async function unbanUrl(banId, logElementId) {
+            try {
+                var resp = await fetch('/api/banned-urls/' + banId, {
+                    method: 'DELETE',
+                });
+                if (resp.ok) {
+                    var card = document.getElementById('log-' + logElementId);
+                    if (card) {
+                        card.style.animation = 'slideOut 0.3s ease forwards';
+                        setTimeout(function() { fetchLogs(); }, 300);
+                    }
+                } else {
+                    alert('Failed to unban URL');
+                }
+            } catch (e) {
+                console.error('Unban error:', e);
+                alert('Failed to unban URL');
+            }
         }
 
 
