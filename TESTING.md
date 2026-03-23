@@ -126,6 +126,19 @@ Requires Telegram or Discord configured:
 - [ ] Album error sends notification
 - [ ] Copy-to-Lidarr failure sends notification with `album_error` type
 
+## AcoustID Post-Download Verification Tests
+
+Run after changes to fingerprint verification, verify-retry loop, or related UI:
+
+- [ ] **Settings page**: AcoustID enabled + API key set — verification active during downloads
+- [ ] **Current Download**: Track shows "Verifying..." status after "Tagging..."
+- [ ] **Current Download**: If verification fails, track cycles back to "Downloading" for next candidate
+- [ ] **Current Download**: Skip button works during "Verifying..." status
+- [ ] **Logs page**: "URL Banned" filter shows auto-banned URLs from verification mismatches
+- [ ] **Logs page**: Unban button works on auto-banned URLs
+- [ ] **Downloads page**: History shows final accepted track (not rejected candidates)
+- [ ] **Re-download**: Queue same album — previously auto-banned URLs are skipped during search
+
 ## Cleanup
 
 ```bash

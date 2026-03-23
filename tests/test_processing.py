@@ -824,3 +824,102 @@ class TestVerifyRetryLoop:
         assert len(failed) == 1
 
         self._teardown_download_process()
+
+
+class TestVerifyRetryIntegration:
+    """End-to-end: search -> download -> reject -> retry -> accept."""
+
+    def _setup_download_process(self, track):
+        from processing import download_process
+        download_process["stop"] = False
+        download_process["album_id"] = 42
+        download_process["tracks"] = [
+            {
+                "track_title": track["title"],
+                "track_number": int(track.get("trackNumber", 1)),
+                "status": "pending",
+                "youtube_url": "",
+                "youtube_title": "",
+                "progress_percent": "",
+                "progress_speed": "",
+                "error_message": "",
+                "skip": False,
+            },
+        ]
+        download_process["current_track_index"] = -1
+
+    def _teardown_download_process(self):
+        from processing import download_process
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+        download_process["album_id"] = None
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_banned_urls_persist_across_downloads(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """URLs banned in first download attempt are filtered in second."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song",
+            "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+
+        # First download: url_a mismatches, url_b verifies
+        self._setup_download_process(track)
+        mock_search.return_value = [
+            {"url": "url_a", "title": "Wrong",
+             "duration": 200, "score": 0.9, "channel": "Ch"},
+            {"url": "url_b", "title": "Right",
+             "duration": 200, "score": 0.8, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+        mock_verify.side_effect = [
+            {"status": "mismatch", "fp_data": {},
+             "matched_id": "wrong"},
+            {"status": "verified",
+             "fp_data": {
+                 "acoustid_fingerprint_id": "fp",
+                 "acoustid_score": 0.9,
+                 "acoustid_recording_id": "expected-rec",
+                 "acoustid_recording_title": "Song",
+             },
+             "matched_id": "expected-rec"},
+        ]
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+        assert len(failed) == 0
+
+        # url_a should now be in banned_urls
+        banned = models.get_banned_urls_for_track(42, "Song")
+        assert "url_a" in banned
+
+        self._teardown_download_process()
