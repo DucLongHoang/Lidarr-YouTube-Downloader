@@ -729,6 +729,20 @@
             color: var(--danger);
             background: rgba(239,68,68,0.15);
         }
+        .btn-unban-track {
+            background: none;
+            border: 1px solid #f97316;
+            color: #f97316;
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 4px;
+            transition: all 0.15s;
+            font-size: 0.65rem;
+            font-weight: 500;
+        }
+        .btn-unban-track:hover {
+            background: rgba(249,115,22,0.15);
+        }
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -747,6 +761,7 @@
             padding: 1.5rem;
             max-width: 480px;
             width: 90%;
+            position: relative;
             box-shadow: var(--shadow);
         }
         .modal-title {
@@ -756,6 +771,27 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
+        }
+        .modal-close {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1.1rem;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+        .modal-close:hover {
+            color: var(--text);
+            background: var(--surface-hover);
         }
         .modal-title i { color: var(--danger); }
         .modal-subtitle {
@@ -1640,11 +1676,22 @@
             grid.appendChild(loading);
 
             try {
-                var resp = await fetch('/api/download/history/' + albumId + '/tracks');
+                var [resp, bannedResp] = await Promise.all([
+                    fetch('/api/download/history/' + albumId + '/tracks'),
+                    fetch('/api/banned-urls?per_page=200'),
+                ]);
                 if (!resp.ok) {
                     throw new Error('Server returned ' + resp.status);
                 }
                 var tracks = await resp.json();
+                var bannedData = bannedResp.ok ? await bannedResp.json() : {items: []};
+                var bannedByKey = {};
+                bannedData.items.forEach(function(b) {
+                    if (String(b.album_id) === String(albumId)) {
+                        var key = b.track_title + '||' + b.youtube_url;
+                        bannedByKey[key] = b.id;
+                    }
+                });
                 if (tracks.length === 0) {
                     grid.textContent = '';
                     var empty = document.createElement('div');
@@ -1802,6 +1849,27 @@
                             };
                         })(t);
                         actionsCell.appendChild(delBtn);
+                    } else if (t.deleted && t.youtube_url) {
+                        var banKey = t.track_title + '||' + t.youtube_url;
+                        var banId = bannedByKey[banKey];
+                        if (banId) {
+                            var unbanBtn = document.createElement('button');
+                            unbanBtn.className = 'btn-unban-track';
+                            unbanBtn.title = 'Unban this URL';
+                            unbanBtn.textContent = 'Unban';
+                            unbanBtn.onclick = (function(bid, aid, gridEl) {
+                                return function(e) {
+                                    e.stopPropagation();
+                                    fetch('/api/banned-urls/' + bid, {method: 'DELETE'})
+                                        .then(function(r) {
+                                            if (r.ok) renderTrackGrid(gridEl, aid);
+                                            else alert('Failed to unban URL');
+                                        })
+                                        .catch(function() { alert('Failed to unban URL'); });
+                                };
+                            })(banId, albumId, grid);
+                            actionsCell.appendChild(unbanBtn);
+                        }
                     }
                     detailRow.appendChild(actionsCell);
 
@@ -2077,6 +2145,7 @@
 
 <div class="modal-overlay hidden" id="deleteTrackModal" onclick="if(event.target===this)closeDeleteModal()">
     <div class="modal-box">
+        <button class="modal-close" onclick="closeDeleteModal()" title="Close"><i class="fas fa-times"></i></button>
         <div class="modal-title"><i class="fas fa-trash-alt"></i> Delete Track</div>
         <div class="modal-subtitle">This will permanently remove the downloaded file from disk.</div>
         <div class="file-path-label">File location</div>
@@ -2090,8 +2159,7 @@
             </div>
         </label>
         <div class="modal-actions">
-            <button class="btn btn-outline" onclick="closeDeleteModal()">Cancel</button>
-            <button class="btn btn-danger" id="confirmDeleteBtn"><i class="fas fa-trash"></i> Delete Track</button>
+            <button class="btn btn-danger" id="confirmDeleteBtn" style="width:100%"><i class="fas fa-trash"></i> Delete Track</button>
         </div>
     </div>
 </div>

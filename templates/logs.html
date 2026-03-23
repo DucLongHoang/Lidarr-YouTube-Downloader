@@ -1007,11 +1007,43 @@
                 const response = await fetch(url);
                 const data = await response.json();
 
-                logsTotal = data.total;
-                logsTotalPages = data.pages;
-                logsCurrentPage = data.page;
-
-                renderLogs(data.items, data.total);
+                if (currentFilter === 'all') {
+                    // Merge banned URLs into the "All Types" view
+                    try {
+                        const banRes = await fetch('/api/banned-urls?page=1&per_page=200');
+                        const banData = await banRes.json();
+                        var banItems = banData.items.map(function(ban) {
+                            return {
+                                id: 'ban_' + ban.id,
+                                _ban_id: ban.id,
+                                type: 'url_banned',
+                                album_id: ban.album_id,
+                                album_title: ban.album_title,
+                                artist_name: ban.artist_name,
+                                timestamp: ban.banned_at,
+                                youtube_url: ban.youtube_url,
+                                track_title: ban.track_title,
+                                track_number: ban.track_number,
+                            };
+                        });
+                        var merged = data.items.concat(banItems);
+                        merged.sort(function(a, b) { return b.timestamp - a.timestamp; });
+                        logsTotal = data.total + banData.total;
+                        logsTotalPages = Math.max(1, Math.ceil(logsTotal / LOGS_PER_PAGE));
+                        logsCurrentPage = data.page;
+                        renderLogs(merged.slice(0, LOGS_PER_PAGE), logsTotal);
+                    } catch (_) {
+                        logsTotal = data.total;
+                        logsTotalPages = data.pages;
+                        logsCurrentPage = data.page;
+                        renderLogs(data.items, data.total);
+                    }
+                } else {
+                    logsTotal = data.total;
+                    logsTotalPages = data.pages;
+                    logsCurrentPage = data.page;
+                    renderLogs(data.items, data.total);
+                }
                 fetchLogsSize();
             } catch (error) {
                 console.error('Error fetching logs:', error);

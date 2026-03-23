@@ -103,10 +103,24 @@ def get_album_history(page=1, per_page=50):
             artist_name,
             cover_url,
             MAX(timestamp) as latest_timestamp,
-            SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
-            SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as fail_count,
+            SUM(CASE WHEN latest_success = 1 THEN 1 ELSE 0 END)
+                as success_count,
+            SUM(CASE WHEN latest_success = 0 THEN 1 ELSE 0 END)
+                as fail_count,
             COUNT(*) as total_count
-        FROM track_downloads
+        FROM (
+            SELECT t1.album_id, t1.album_title, t1.artist_name,
+                   t1.cover_url, t1.track_title, t1.timestamp,
+                   t1.success as latest_success
+            FROM track_downloads t1
+            INNER JOIN (
+                SELECT album_id, track_title, MAX(timestamp) as max_ts
+                FROM track_downloads
+                GROUP BY album_id, track_title
+            ) t2 ON t1.album_id = t2.album_id
+                AND t1.track_title = t2.track_title
+                AND t1.timestamp = t2.max_ts
+        )
         GROUP BY album_id, album_title, artist_name
         ORDER BY latest_timestamp DESC
     """
