@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 import pytest
 
@@ -128,6 +130,32 @@ def test_fingerprint_track_success(monkeypatch):
     assert result["acoustid_score"] == 0.92
     assert result["acoustid_recording_id"] == "rec-xyz"
     assert result["acoustid_recording_title"] == "My Song"
+
+
+def test_throttle_is_thread_safe():
+    """Concurrent _throttle() calls don't overlap within RATE_LIMIT_INTERVAL."""
+    from fingerprint import _throttle, RATE_LIMIT_INTERVAL
+
+    timestamps = []
+    lock = threading.Lock()
+
+    def record_time():
+        _throttle()
+        with lock:
+            timestamps.append(time.monotonic())
+
+    threads = [threading.Thread(target=record_time) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    timestamps.sort()
+    for i in range(1, len(timestamps)):
+        gap = timestamps[i] - timestamps[i - 1]
+        assert gap >= RATE_LIMIT_INTERVAL * 0.9, (
+            f"Gap {gap:.3f}s < {RATE_LIMIT_INTERVAL * 0.9:.3f}s"
+        )
 
 
 def test_fingerprint_track_no_match(monkeypatch):

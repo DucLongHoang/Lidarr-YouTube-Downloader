@@ -9,6 +9,7 @@ import json
 import logging
 import shutil
 import subprocess
+import threading
 import time
 
 import requests
@@ -20,6 +21,7 @@ RATE_LIMIT_INTERVAL = 0.34  # ~3 requests per second
 
 _last_request_time = 0.0
 _fpcalc_warned = False
+_throttle_lock = threading.Lock()
 
 
 def is_fpcalc_available():
@@ -57,10 +59,11 @@ def _run_fpcalc(filepath):
 def _throttle():
     """Rate limit to ~3 requests per second for AcoustID API."""
     global _last_request_time
-    elapsed = time.monotonic() - _last_request_time
-    if elapsed < RATE_LIMIT_INTERVAL:
-        time.sleep(RATE_LIMIT_INTERVAL - elapsed)
-    _last_request_time = time.monotonic()
+    with _throttle_lock:
+        elapsed = time.monotonic() - _last_request_time
+        if elapsed < RATE_LIMIT_INTERVAL:
+            time.sleep(RATE_LIMIT_INTERVAL - elapsed)
+        _last_request_time = time.monotonic()
 
 
 def _lookup_acoustid(api_key, duration, fingerprint):
