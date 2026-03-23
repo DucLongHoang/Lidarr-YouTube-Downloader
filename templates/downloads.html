@@ -1075,6 +1075,7 @@
         .status-searching { color: #3b82f6; }
         .status-tagging { color: #a855f7; }
         .status-fingerprinting { color: #c084fc; }
+        .status-verifying { color: #c084fc; }
         .status-downloading { color: var(--primary); }
         .current-track-skip-btn {
             background: transparent;
@@ -1356,7 +1357,7 @@
             tracks.forEach(function(track, i) {
                 var row = document.createElement('div');
                 row.className = 'current-track-row';
-                var isActive = (track.status === 'downloading' || track.status === 'searching' || track.status === 'tagging' || track.status === 'fingerprinting');
+                var isActive = (track.status === 'downloading' || track.status === 'searching' || track.status === 'tagging' || track.status === 'fingerprinting' || track.status === 'verifying');
                 if (isActive) {
                     row.classList.add('active');
                 } else {
@@ -1430,6 +1431,9 @@
                 } else if (track.status === 'fingerprinting') {
                     statusSpan.className = 'status-fingerprinting';
                     statusSpan.textContent = 'Fingerprinting...';
+                } else if (track.status === 'verifying') {
+                    statusSpan.className = 'status-verifying';
+                    statusSpan.textContent = 'Verifying...';
                 } else if (track.status === 'downloading') {
                     statusSpan.className = 'status-downloading';
                     statusSpan.textContent = track.progress_percent || 'Downloading';
@@ -1441,7 +1445,7 @@
 
                 // Skip button column
                 var skipCell = document.createElement('div');
-                if (track.status === 'pending' || track.status === 'searching' || track.status === 'downloading') {
+                if (track.status === 'pending' || track.status === 'searching' || track.status === 'downloading' || track.status === 'verifying') {
                     var skipBtn = document.createElement('button');
                     skipBtn.className = 'current-track-skip-btn';
                     skipBtn.textContent = 'Skip';

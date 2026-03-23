@@ -87,7 +87,7 @@ def stop_download():
         download_process["stop"] = True
         for track in download_process.get("tracks", []):
             if track.get("status") in (
-                "pending", "searching", "downloading",
+                "pending", "searching", "downloading", "verifying",
             ):
                 track["skip"] = True
         models.clear_queue()
