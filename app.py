@@ -39,7 +39,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.7"
+VERSION = "1.5.8"
 
 @app.context_processor
 def inject_version():
@@ -1770,6 +1770,19 @@ def api_remove_from_queue(album_id):
 def api_clear_queue():
     with queue_lock:
         download_queue.clear()
+    return jsonify({"success": True})
+
+@app.route("/api/download/queue/reorder", methods=["PUT"])
+def api_reorder_queue():
+    new_order = request.json.get("queue", [])
+    if not isinstance(new_order, list):
+        return jsonify({"success": False, "message": "queue must be a list"}), 400
+    with queue_lock:
+        valid = set(download_queue)
+        reordered = [aid for aid in new_order if aid in valid]
+        missing = [aid for aid in download_queue if aid not in reordered]
+        download_queue.clear()
+        download_queue.extend(reordered + missing)
     return jsonify({"success": True})
 
 @app.route("/api/download/history")
