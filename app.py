@@ -639,7 +639,34 @@ def api_get_logs():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 50, type=int)
     log_type = request.args.get("type", None, type=str)
-    return jsonify(models.get_logs(page, per_page, log_type=log_type))
+    result = models.get_logs(page, per_page, log_type=log_type)
+    _enrich_track_failure_logs(result["items"])
+    return jsonify(result)
+
+
+def _enrich_track_failure_logs(items):
+    """Attach candidate attempts and ban status to track_failure logs."""
+    for item in items:
+        if item.get("type") != "track_failure":
+            continue
+        td_id = item.get("track_download_id")
+        if not td_id:
+            item["candidates"] = []
+            continue
+        candidates = models.get_candidate_attempts(td_id)
+        album_id = item.get("album_id")
+        banned_lookup = {}
+        try:
+            banned = models.get_banned_urls_for_album(album_id)
+            for b in banned:
+                banned_lookup[b["youtube_url"]] = b["id"]
+        except Exception:
+            pass
+        for c in candidates:
+            url = c.get("youtube_url", "")
+            c["is_banned"] = url in banned_lookup
+            c["ban_id"] = banned_lookup.get(url)
+        item["candidates"] = candidates
 
 
 @app.route("/api/logs/size", methods=["GET"])
