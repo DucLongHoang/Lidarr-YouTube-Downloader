@@ -371,6 +371,7 @@
         .log-row.album_error { border-left-color: var(--danger); }
         .log-row.manual_download { border-left-color: #8b5cf6; }
         .log-row.track_failure { border-left-color: var(--danger); }
+        .log-row.track_download { border-left-color: var(--primary); }
         .log-row.url_banned { border-left-color: #f97316; }
 
         .candidate-row {
@@ -412,6 +413,16 @@
         .candidate-outcome.verified {
             background: rgba(16, 185, 129, 0.1);
             color: var(--primary);
+        }
+
+        .candidate-outcome.accepted_no_verify {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--primary);
+        }
+
+        .candidate-outcome.accepted_unverified_fallback {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
         }
 
         .candidate-sep {
@@ -828,6 +839,7 @@
                     <option value="album_error">Album Error</option>
                     <option value="manual_download">Manual Download</option>
                     <option value="track_failure">Track Failures</option>
+                    <option value="track_download">Track Downloads</option>
                     <option value="url_banned">URL Banned</option>
                 </select>
             </div>
@@ -1117,6 +1129,8 @@
                 'album_error': { name: 'Album Error', icon: 'fa-exclamation-circle' },
                 'manual_download': { name: 'Manual Download', icon: 'fa-hand-pointer' },
                 'url_banned': { name: 'URL Banned', icon: 'fa-ban' },
+                'track_failure': { name: 'Track Failure', icon: 'fa-xmark' },
+                'track_download': { name: 'Track Download', icon: 'fa-check' },
             };
             return types[type] || { name: type, icon: 'fa-info-circle' };
         }
@@ -1125,6 +1139,9 @@
         function renderLogEntry(log) {
             if (log.type === 'track_failure') {
                 return renderTrackFailureRow(log);
+            }
+            if (log.type === 'track_download') {
+                return renderTrackDownloadRow(log);
             }
             if (log.type === 'url_banned') {
                 return renderBannedUrlRow(log);
@@ -1158,6 +1175,31 @@
             var html = '<div class="log-entry-group">'
                 + '<div class="log-row track_failure" id="log-' + escapeHtml(String(log.id)) + '">'
                 + '<div class="status-icon error"><i class="fas fa-xmark"></i></div>'
+                + '<div class="log-row-info">'
+                + '<span class="log-row-title">&ldquo;' + escapeHtml(log.track_title || '') + '&rdquo;</span>'
+                + '<span class="log-row-meta">'
+                + escapeHtml(log.album_title) + ' &mdash; ' + escapeHtml(log.artist_name)
+                + ' &bull; Track ' + (log.track_number || '?')
+                + ' &bull; ' + formatTimestamp(log.timestamp) + '</span>'
+                + '</div>'
+                + '<div class="log-row-actions">'
+                + '<button class="btn-icon" onclick="dismissLog(\'' + escapeHtml(String(log.id))
+                + '\')" title="Dismiss"><i class="fas fa-times"></i></button>'
+                + '</div></div>';
+
+            if (log.candidates && log.candidates.length > 0) {
+                log.candidates.forEach(function(c) {
+                    html += renderCandidateRow(c);
+                });
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function renderTrackDownloadRow(log) {
+            var html = '<div class="log-entry-group">'
+                + '<div class="log-row track_download" id="log-' + escapeHtml(String(log.id)) + '">'
+                + '<div class="status-icon"><i class="fas fa-check"></i></div>'
                 + '<div class="log-row-info">'
                 + '<span class="log-row-title">&ldquo;' + escapeHtml(log.track_title || '') + '&rdquo;</span>'
                 + '<span class="log-row-meta">'
@@ -1218,14 +1260,21 @@
 
             var detail = '';
             if (c.outcome === 'mismatch') {
-                detail = 'AcoustID: &ldquo;' + escapeHtml(c.acoustid_matched_title || '?')
+                detail = 'matched: &ldquo;' + escapeHtml(c.acoustid_matched_title || '?')
                     + '&rdquo; (' + (c.acoustid_score || 0).toFixed(2) + ')';
             } else if (c.outcome === 'unverified') {
-                detail = 'AcoustID: no results';
+                detail = 'AcoustID: no data';
             } else if (c.outcome === 'download_failed') {
                 detail = escapeHtml(c.error_message || 'Download failed');
             } else if (c.outcome === 'verified') {
-                detail = 'AcoustID: verified (' + (c.acoustid_score || 0).toFixed(2) + ')';
+                detail = 'matched: &ldquo;' + escapeHtml(c.acoustid_matched_title || c.acoustid_matched_id || '?')
+                    + '&rdquo; (' + (c.acoustid_score || 0).toFixed(2) + ')';
+            } else if (c.outcome === 'accepted_no_verify') {
+                detail = c.acoustid_score
+                    ? 'AcoustID: ' + (c.acoustid_score || 0).toFixed(2)
+                    : 'AcoustID: not checked';
+            } else if (c.outcome === 'accepted_unverified_fallback') {
+                detail = 'Accepted as fallback (no AcoustID data)';
             }
 
             var duration = c.duration_seconds

@@ -1336,7 +1336,63 @@ class TestLogsEnrichment:
         assert cand["is_banned"] is True
         assert isinstance(cand["ban_id"], int)
 
-    def test_non_track_failure_logs_have_no_candidates(self, client):
+    def test_track_download_log_includes_candidates(self, client):
+        import models
+        from models import CandidateOutcome
+
+        track_id = models.add_track_download(
+            album_id=1, album_title="A", artist_name="A",
+            track_title="T1", track_number=1, success=True,
+            error_message="", youtube_url="http://yt/ok",
+            youtube_title="OK", match_score=0.9,
+            duration_seconds=200, album_path="",
+            lidarr_album_path="", cover_url="",
+        )
+        models.flush_candidate_attempts(track_id, [
+            {
+                "youtube_url": "http://yt/bad",
+                "youtube_title": "Bad",
+                "match_score": 0.8, "duration_seconds": 200,
+                "outcome": CandidateOutcome.UNVERIFIED,
+                "acoustid_matched_id": "",
+                "acoustid_matched_title": "",
+                "acoustid_score": 0.0,
+                "expected_recording_id": "rec-1",
+                "error_message": "", "timestamp": 1000.0,
+            },
+            {
+                "youtube_url": "http://yt/ok",
+                "youtube_title": "OK",
+                "match_score": 0.9, "duration_seconds": 200,
+                "outcome": CandidateOutcome
+                .ACCEPTED_UNVERIFIED_FALLBACK,
+                "acoustid_matched_id": "",
+                "acoustid_matched_title": "",
+                "acoustid_score": 0.0,
+                "expected_recording_id": "rec-1",
+                "error_message": "", "timestamp": 1001.0,
+            },
+        ])
+        models.add_log(
+            log_type="track_download", album_id=1,
+            album_title="A", artist_name="A",
+            details="Track downloaded successfully",
+            track_title="T1", track_number=1,
+            track_download_id=track_id,
+        )
+        resp = client.get("/api/logs?type=track_download")
+        data = resp.get_json()
+        assert len(data["items"]) == 1
+        item = data["items"][0]
+        assert item["track_title"] == "T1"
+        assert len(item["candidates"]) == 2
+        assert item["candidates"][0]["outcome"] == "unverified"
+        assert (
+            item["candidates"][1]["outcome"]
+            == "accepted_unverified_fallback"
+        )
+
+    def test_non_track_logs_have_no_candidates(self, client):
         import models
 
         models.add_log(

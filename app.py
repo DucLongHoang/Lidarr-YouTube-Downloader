@@ -640,15 +640,18 @@ def api_get_logs():
     per_page = request.args.get("per_page", 50, type=int)
     log_type = request.args.get("type", None, type=str)
     result = models.get_logs(page, per_page, log_type=log_type)
-    _enrich_track_failure_logs(result["items"])
+    _enrich_track_logs(result["items"])
     return jsonify(result)
 
 
-def _enrich_track_failure_logs(items):
-    """Attach candidate attempts and ban status to track_failure logs."""
+_TRACK_LOG_TYPES = {"track_failure", "track_download"}
+
+
+def _enrich_track_logs(items):
+    """Attach candidate attempts and ban status to track logs."""
     banned_cache = {}
     for item in items:
-        if item.get("type") != "track_failure":
+        if item.get("type") not in _TRACK_LOG_TYPES:
             continue
         td_id = item.get("track_download_id")
         if not td_id:

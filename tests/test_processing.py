@@ -92,7 +92,7 @@ class TestDownloadTracks:
             cover_url="http://cover.jpg",
             lidarr_album_path="/music/a",
         )
-        failed, size = _download_tracks(
+        failed, _, size = _download_tracks(
             [track], album_path, album, album_ctx,
         )
 
@@ -145,7 +145,7 @@ class TestDownloadTracks:
         ]
         download_process["current_track_index"] = -1
 
-        failed, size = _download_tracks(
+        failed, _, size = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -285,7 +285,7 @@ class TestTrackStateTransitions:
         ]
         download_process["current_track_index"] = -1
         download_process["stop"] = False
-        failed, size = _download_tracks(
+        failed, _, size = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert len(failed) == 0
@@ -315,7 +315,7 @@ class TestTrackStateTransitions:
         ]
         download_process["current_track_index"] = -1
         download_process["stop"] = False
-        failed, size = _download_tracks(
+        failed, _, size = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert download_process["tracks"][0]["status"] == "skipped"
@@ -339,7 +339,7 @@ class TestTrackStateTransitions:
              "error_message": "", "skip": False},
         ]
         download_process["current_track_index"] = -1
-        failed, size = _download_tracks(
+        failed, _, size = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert download_process["tracks"][0]["status"] == "skipped"
@@ -373,7 +373,7 @@ class TestTrackStateTransitions:
         ]
         download_process["current_track_index"] = -1
         download_process["stop"] = False
-        failed, size = _download_tracks(
+        failed, _, size = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert len(failed) == 0
@@ -405,7 +405,7 @@ class TestTrackStateTransitions:
         ]
         download_process["current_track_index"] = -1
         download_process["stop"] = False
-        failed, size = _download_tracks(
+        failed, _, size = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert len(failed) == 0
@@ -510,7 +510,7 @@ class TestVerifyRetryLoop:
         ]
 
         album = {"tracks": [track]}
-        failed, size = _download_tracks(
+        failed, _, size = _download_tracks(
             [track], album_path, album, _make_album_ctx(),
         )
 
@@ -576,7 +576,7 @@ class TestVerifyRetryLoop:
             "matched_id": "other-rec",
         }
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -641,7 +641,7 @@ class TestVerifyRetryLoop:
             "matched_id": None,
         }
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -701,7 +701,7 @@ class TestVerifyRetryLoop:
             }
         mock_dl_candidate.side_effect = fake_download
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -755,7 +755,7 @@ class TestVerifyRetryLoop:
             }
         mock_dl_candidate.side_effect = fake_download
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -810,7 +810,7 @@ class TestVerifyRetryLoop:
 
         mock_verify.return_value = None
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -875,7 +875,7 @@ class TestVerifyRetryLoop:
              "matched_id": None},
         ]
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -971,7 +971,7 @@ class TestVerifyRetryIntegration:
              "matched_id": "expected-rec"},
         ]
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1176,7 +1176,7 @@ class TestCandidateAttemptCapture:
             "matched_id": "other-rec",
         }
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1223,7 +1223,7 @@ class TestCandidateAttemptCapture:
             "error_message": "403 Forbidden",
         }
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1276,7 +1276,7 @@ class TestCandidateAttemptCapture:
             "matched_id": None,
         }
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1331,7 +1331,7 @@ class TestCandidateAttemptCapture:
             "matched_id": "other-rec",
         }
 
-        failed, _ = _download_tracks(
+        failed, _, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1361,8 +1361,12 @@ def test_handle_post_download_creates_track_failure_logs(monkeypatch):
         {"title": "Track2", "reason": "AcoustID failed", "track_num": 2, "track_download_id": 10},
         {"title": "Track3", "reason": "Download failed", "track_num": 3, "track_download_id": 11},
     ]
+    succeeded_tracks = [
+        {"title": "Track1", "track_num": 1, "track_download_id": 9},
+    ]
     processing._handle_post_download(
-        failed_tracks, [None, None, None], 1, "Album", "Artist", 5000000,
+        failed_tracks, succeeded_tracks,
+        [None, None, None], 1, "Album", "Artist", 5000000,
     )
     logs = models.get_logs(log_type="track_failure")
     assert logs["total"] == 2
@@ -1389,10 +1393,76 @@ def test_handle_post_download_all_failed_creates_track_logs(monkeypatch):
         {"title": "T2", "reason": "DL error", "track_num": 2, "track_download_id": 21},
     ]
     result = processing._handle_post_download(
-        failed_tracks, [None, None], 1, "Album", "Artist", 0,
+        failed_tracks, [],
+        [None, None], 1, "Album", "Artist", 0,
     )
     assert result is not None  # returns error dict
     logs = models.get_logs(log_type="track_failure")
     assert logs["total"] == 2
     titles = {item["track_title"] for item in logs["items"]}
     assert titles == {"T1", "T2"}
+
+
+def test_handle_post_download_creates_track_download_logs(monkeypatch):
+    """Successful tracks get track_download log entries."""
+    import processing
+
+    monkeypatch.setattr(processing, "download_process", {
+        "tracks": [
+            {"status": "done"},
+            {"status": "done"},
+        ],
+        "stop": False,
+    })
+    monkeypatch.setattr(
+        processing, "send_notifications", lambda *a, **kw: None,
+    )
+
+    succeeded_tracks = [
+        {"title": "T1", "track_num": 1, "track_download_id": 50},
+        {"title": "T2", "track_num": 2, "track_download_id": 51},
+    ]
+    processing._handle_post_download(
+        [], succeeded_tracks,
+        [None, None], 1, "Album", "Artist", 5000000,
+    )
+    logs = models.get_logs(log_type="track_download")
+    assert logs["total"] == 2
+    titles = {item["track_title"] for item in logs["items"]}
+    assert titles == {"T1", "T2"}
+    for item in logs["items"]:
+        assert item["track_download_id"] is not None
+
+
+def test_handle_post_download_partial_creates_both_log_types(
+    monkeypatch,
+):
+    """Partial download creates both failure and success per-track logs."""
+    import processing
+
+    monkeypatch.setattr(processing, "download_process", {
+        "tracks": [
+            {"status": "done"},
+            {"status": "failed"},
+        ],
+        "stop": False,
+    })
+    monkeypatch.setattr(
+        processing, "send_notifications", lambda *a, **kw: None,
+    )
+
+    failed_tracks = [
+        {"title": "T2", "reason": "failed", "track_num": 2,
+         "track_download_id": 61},
+    ]
+    succeeded_tracks = [
+        {"title": "T1", "track_num": 1, "track_download_id": 60},
+    ]
+    processing._handle_post_download(
+        failed_tracks, succeeded_tracks,
+        [None, None], 1, "Album", "Artist", 3000000,
+    )
+    fail_logs = models.get_logs(log_type="track_failure")
+    assert fail_logs["total"] == 1
+    success_logs = models.get_logs(log_type="track_download")
+    assert success_logs["total"] == 1

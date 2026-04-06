@@ -270,14 +270,17 @@ def process_album_download(album_id, force=False):
             }
             for i, t in enumerate(tracks_to_download)
         ]
-        failed_tracks, total_downloaded_size = _download_tracks(
-            tracks_to_download, album_path, album, album_ctx,
+        failed_tracks, succeeded_tracks, total_downloaded_size = (
+            _download_tracks(
+                tracks_to_download, album_path, album, album_ctx,
+            )
         )
 
         set_permissions(artist_path)
 
         result = _handle_post_download(
-            failed_tracks, tracks_to_download, album_id,
+            failed_tracks, succeeded_tracks,
+            tracks_to_download, album_id,
             album_title, artist_name, total_downloaded_size,
         )
         if result is not None:
@@ -496,7 +499,7 @@ def _accept_track_file(
     """Accept a downloaded file: XML metadata, move, record in DB.
 
     Returns:
-        File size in bytes.
+        Tuple of (file_size_bytes, track_download_id or None).
     """
     cfg = load_config()
     if cfg.get("xml_metadata_enabled", True):
@@ -551,7 +554,7 @@ def _accept_track_file(
             "Failed to record track download for '%s' (album %d)",
             track_title, album_ctx["album_id"], exc_info=True,
         )
-        return file_size
+        return file_size, None
 
     if candidate_attempts and track_download_id is not None:
         try:
@@ -565,7 +568,7 @@ def _accept_track_file(
                 track_title, track_download_id, exc_info=True,
             )
 
-    return file_size
+    return file_size, track_download_id
 
 
 def _record_track_failure(
@@ -654,6 +657,7 @@ def _download_tracks(
     cover_data = album_ctx["cover_data"]
 
     failed_tracks = []
+    succeeded_tracks = []
     total_downloaded_size = 0
     _results_lock = threading.Lock()
 
@@ -887,7 +891,7 @@ def _download_tracks(
                     )
                 )
 
-            file_size = _accept_track_file(
+            file_size, td_id = _accept_track_file(
                 actual_file, track_num, sanitized_track,
                 dl_result, fp_data,
                 track_state=track_state,
@@ -898,6 +902,11 @@ def _download_tracks(
             )
             with _results_lock:
                 total_downloaded_size += file_size
+                succeeded_tracks.append({
+                    "title": track_title,
+                    "track_num": track_num,
+                    "track_download_id": td_id,
+                })
             accepted = True
             break
 
@@ -939,7 +948,7 @@ def _download_tracks(
                         "youtube_title", "",
                     )
                     tag_mp3(fb_file, track, album, cover_data)
-                    file_size = _accept_track_file(
+                    file_size, td_id = _accept_track_file(
                         fb_file, track_num, sanitized_track,
                         fb_result, {},
                         track_state=track_state,
@@ -952,6 +961,11 @@ def _download_tracks(
                     )
                     with _results_lock:
                         total_downloaded_size += file_size
+                        succeeded_tracks.append({
+                            "title": track_title,
+                            "track_num": track_num,
+                            "track_download_id": td_id,
+                        })
                     return
                 else:
                     candidate_attempts_buf.append(
@@ -1012,12 +1026,12 @@ def _download_tracks(
             except Exception as e:
                 logger.warning("Track worker exception: %s", e)
 
-    return failed_tracks, total_downloaded_size
+    return failed_tracks, succeeded_tracks, total_downloaded_size
 
 
 def _handle_post_download(
-    failed_tracks, tracks_to_download, album_id,
-    album_title, artist_name, total_downloaded_size,
+    failed_tracks, succeeded_tracks, tracks_to_download,
+    album_id, album_title, artist_name, total_downloaded_size,
 ):
     """Log and notify about download results.
 
@@ -1172,6 +1186,26 @@ def _handle_post_download(
             },
         )
         logger.info("All tracks downloaded successfully")
+
+    for st in succeeded_tracks:
+        try:
+            models.add_log(
+                log_type="track_download",
+                album_id=album_id,
+                album_title=album_title,
+                artist_name=artist_name,
+                details="Track downloaded successfully",
+                track_title=st["title"],
+                track_number=st["track_num"],
+                track_download_id=st.get(
+                    "track_download_id",
+                ),
+            )
+        except Exception:
+            logger.warning(
+                "Failed to log track_download for '%s'",
+                st["title"], exc_info=True,
+            )
 
     return None
 
