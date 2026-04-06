@@ -468,6 +468,48 @@
             border-radius: 0;
         }
 
+        .candidates-container {
+            display: none;
+        }
+
+        .candidates-container.expanded {
+            display: block;
+        }
+
+        .attempts-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .attempts-pill:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--text);
+        }
+
+        .attempts-pill.open {
+            background: rgba(255, 255, 255, 0.10);
+            color: var(--text);
+        }
+
+        .attempts-pill .pill-chevron {
+            font-size: 0.55rem;
+            transition: transform 0.2s ease;
+        }
+
+        .attempts-pill.open .pill-chevron {
+            transform: rotate(90deg);
+        }
+
         .status-icon {
             width: 28px;
             height: 28px;
@@ -1172,50 +1214,72 @@
         }
 
         function renderTrackFailureRow(log) {
+            var hasCandidates = log.candidates && log.candidates.length > 0;
+            var safeId = escapeHtml(String(log.id));
+            var attemptsPill = hasCandidates
+                ? ' <span class="attempts-pill" id="pill-' + safeId
+                  + '" onclick="toggleCandidates(\'' + safeId + '\')">'
+                  + log.candidates.length + (log.candidates.length === 1 ? ' attempt' : ' attempts')
+                  + ' <i class="fas fa-chevron-right pill-chevron"></i></span>'
+                : '';
             var html = '<div class="log-entry-group">'
-                + '<div class="log-row track_failure" id="log-' + escapeHtml(String(log.id)) + '">'
+                + '<div class="log-row track_failure" id="log-' + safeId + '">'
                 + '<div class="status-icon error"><i class="fas fa-xmark"></i></div>'
                 + '<div class="log-row-info">'
                 + '<span class="log-row-title">&ldquo;' + escapeHtml(log.track_title || '') + '&rdquo;</span>'
                 + '<span class="log-row-meta">'
                 + escapeHtml(log.album_title) + ' &mdash; ' + escapeHtml(log.artist_name)
                 + ' &bull; Track ' + (log.track_number || '?')
+                + attemptsPill
                 + ' &bull; ' + formatTimestamp(log.timestamp) + '</span>'
                 + '</div>'
                 + '<div class="log-row-actions">'
-                + '<button class="btn-icon" onclick="dismissLog(\'' + escapeHtml(String(log.id))
+                + '<button class="btn-icon" onclick="dismissLog(\'' + safeId
                 + '\')" title="Dismiss"><i class="fas fa-times"></i></button>'
                 + '</div></div>';
 
-            if (log.candidates && log.candidates.length > 0) {
+            if (hasCandidates) {
+                html += '<div class="candidates-container" id="candidates-' + safeId + '">';
                 log.candidates.forEach(function(c) {
                     html += renderCandidateRow(c);
                 });
+                html += '</div>';
             }
             html += '</div>';
             return html;
         }
 
         function renderTrackDownloadRow(log) {
+            var hasCandidates = log.candidates && log.candidates.length > 0;
+            var safeId = escapeHtml(String(log.id));
+            var attemptsPill = hasCandidates
+                ? ' <span class="attempts-pill" id="pill-' + safeId
+                  + '" onclick="toggleCandidates(\'' + safeId + '\')">'
+                  + log.candidates.length + (log.candidates.length === 1 ? ' attempt' : ' attempts')
+                  + ' <i class="fas fa-chevron-right pill-chevron"></i></span>'
+                : '';
             var html = '<div class="log-entry-group">'
-                + '<div class="log-row track_download" id="log-' + escapeHtml(String(log.id)) + '">'
+                + '<div class="log-row track_download" id="log-' + safeId + '">'
                 + '<div class="status-icon"><i class="fas fa-check"></i></div>'
                 + '<div class="log-row-info">'
                 + '<span class="log-row-title">&ldquo;' + escapeHtml(log.track_title || '') + '&rdquo;</span>'
                 + '<span class="log-row-meta">'
                 + escapeHtml(log.album_title) + ' &mdash; ' + escapeHtml(log.artist_name)
                 + ' &bull; Track ' + (log.track_number || '?')
+                + attemptsPill
                 + ' &bull; ' + formatTimestamp(log.timestamp) + '</span>'
                 + '</div>'
                 + '<div class="log-row-actions">'
-                + '<button class="btn-icon" onclick="dismissLog(\'' + escapeHtml(String(log.id))
+                + '<button class="btn-icon" onclick="dismissLog(\'' + safeId
                 + '\')" title="Dismiss"><i class="fas fa-times"></i></button>'
                 + '</div></div>';
 
-            if (log.candidates && log.candidates.length > 0) {
+            if (hasCandidates) {
+                html += '<div class="candidates-container" id="candidates-' + safeId + '">';
                 log.candidates.forEach(function(c) {
                     html += renderCandidateRow(c);
                 });
+                html += '</div>';
             }
             html += '</div>';
             return html;
@@ -1351,6 +1415,14 @@
             }
         }
 
+
+        function toggleCandidates(logId) {
+            var container = document.getElementById('candidates-' + logId);
+            var pill = document.getElementById('pill-' + logId);
+            if (!container) return;
+            container.classList.toggle('expanded');
+            if (pill) pill.classList.toggle('open');
+        }
 
         async function dismissLog(logId) {
             if (!confirm('Are you sure you want to dismiss this log entry?')) return;
