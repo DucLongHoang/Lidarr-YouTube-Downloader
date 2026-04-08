@@ -33,6 +33,7 @@ from downloader import get_ytdlp_version
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
 from metadata import create_xml_metadata, get_itunes_tracks, tag_mp3
+from notifications import send_notifications
 from processing import (
     download_process,
     get_download_status,
@@ -1684,7 +1685,71 @@ def _record_manual_download(
     except Exception as log_err:
         logger.error("Failed to add log for '%s': %s", track_title, log_err)
 
+    _notify_manual_download(
+        track_title=track_title,
+        album_title=album_title,
+        artist_name=artist_name,
+        fp_data=fp_data,
+    )
+
     logger.info("Manual download successful: %s", track_title)
+
+
+def _notify_manual_download(
+    *, track_title, album_title, artist_name, fp_data,
+):
+    """Send a notification summarizing a successful manual download.
+
+    Manual downloads bypass the automated verify-retry loop, so users
+    who've opted into the ``manual_download`` log type get a single
+    line summarizing the track, album, artist, and AcoustID score (if
+    post-download fingerprinting ran).
+    """
+    title_line = "Manual Download"
+    album_disp = album_title or "Unknown Album"
+    artist_disp = artist_name or "Unknown Artist"
+    score = 0.0
+    if fp_data:
+        try:
+            score = float(fp_data.get("acoustid_score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+
+    lines = [
+        title_line,
+        f"Track: {track_title}",
+        f"Album: {album_disp}",
+        f"Artist: {artist_disp}",
+    ]
+    fields = []
+    if score > 0:
+        score_str = f"{score:.2f}"
+        lines.append(f"AcoustID: {score_str}")
+        fields.append({
+            "name": "AcoustID",
+            "value": score_str,
+            "inline": True,
+        })
+    try:
+        send_notifications(
+            "\n".join(lines),
+            log_type="manual_download",
+            embed_data={
+                "title": title_line,
+                "description": (
+                    f"{artist_disp} — {album_disp} — {track_title}"
+                ),
+                "color": 0x2ECC71,
+                "fields": fields,
+            },
+        )
+    except Exception as exc:
+        # Notifications must never break the manual-download flow;
+        # logging here is intentional and the only side effect.
+        logger.warning(
+            "Manual download notification failed for '%s': %s",
+            track_title, exc,
+        )
 
 
 def _resolve_track_info(track_title, track_num, album_data, album_id):

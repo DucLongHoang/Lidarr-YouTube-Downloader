@@ -1404,3 +1404,117 @@ class TestLogsEnrichment:
         data = resp.get_json()
         for item in data["items"]:
             assert "candidates" not in item
+
+
+class TestNotifyManualDownload:
+    """`_notify_manual_download` routes a manual download into
+    `send_notifications` with the right log_type, message body, and
+    embed fields."""
+
+    def test_sends_with_manual_download_log_type(self):
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+            )
+
+        mock_send.assert_called_once()
+        _, kwargs = mock_send.call_args
+        assert kwargs["log_type"] == "manual_download"
+        message = mock_send.call_args.args[0]
+        assert "Manual Download" in message
+        assert "Song" in message
+        assert "Album" in message
+        assert "Artist" in message
+        # No AcoustID data => no score line and no embed field.
+        assert "AcoustID" not in message
+        assert kwargs["embed_data"]["fields"] == []
+
+    def test_includes_acoustid_score_when_present(self):
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={
+                    "acoustid_score": 0.92,
+                    "acoustid_recording_id": "rec-1",
+                },
+            )
+
+        message = mock_send.call_args.args[0]
+        assert "AcoustID: 0.92" in message
+        fields = mock_send.call_args.kwargs["embed_data"]["fields"]
+        assert fields == [{
+            "name": "AcoustID",
+            "value": "0.92",
+            "inline": True,
+        }]
+
+    def test_handles_missing_album_and_artist(self):
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title=None,
+                artist_name=None,
+                fp_data={},
+            )
+
+        message = mock_send.call_args.args[0]
+        assert "Unknown Album" in message
+        assert "Unknown Artist" in message
+
+    def test_zero_score_is_omitted(self):
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={"acoustid_score": 0.0},
+            )
+
+        message = mock_send.call_args.args[0]
+        assert "AcoustID" not in message
+
+    def test_invalid_score_is_tolerated(self):
+        """A malformed fp_data value must not raise."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={"acoustid_score": "not-a-number"},
+            )
+
+        mock_send.assert_called_once()
+        message = mock_send.call_args.args[0]
+        assert "AcoustID" not in message
+
+    def test_notification_exception_is_swallowed(self, caplog):
+        """Notification failure must not break the download flow."""
+        import app as app_module
+
+        with patch(
+            "app.send_notifications",
+            side_effect=Exception("boom"),
+        ):
+            # Should not raise.
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+            )
+        assert "Manual download notification failed" in caplog.text
