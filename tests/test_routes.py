@@ -1518,3 +1518,54 @@ class TestNotifyManualDownload:
                 fp_data={},
             )
         assert "Manual download notification failed" in caplog.text
+
+    def test_uses_unique_icon_in_title(self):
+        """Manual download must use the 👤 icon to be visually distinct
+        from automated download notifications (⬇️ ✅ ⚠️ ❌ 📥)."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+            )
+        message = mock_send.call_args.args[0]
+        assert "👤" in message
+        embed = mock_send.call_args.kwargs["embed_data"]
+        assert "👤" in embed["title"]
+
+    def test_cover_url_passed_to_telegram_and_discord(self):
+        """When cover_url is supplied it must reach both channels:
+        Telegram via photo_url, Discord via embed thumbnail."""
+        import app as app_module
+
+        cover = "https://example.com/cover.jpg"
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                cover_url=cover,
+            )
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["photo_url"] == cover
+        assert kwargs["embed_data"]["thumbnail"] == cover
+
+    def test_no_cover_url_omits_photo_and_thumbnail(self):
+        """Empty cover_url must not set photo_url or thumbnail keys."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                cover_url="",
+            )
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["photo_url"] is None
+        assert "thumbnail" not in kwargs["embed_data"]

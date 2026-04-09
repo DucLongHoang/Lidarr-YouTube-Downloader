@@ -1690,22 +1690,23 @@ def _record_manual_download(
         album_title=album_title,
         artist_name=artist_name,
         fp_data=fp_data,
+        cover_url=cover_url,
     )
 
     logger.info("Manual download successful: %s", track_title)
 
 
 def _notify_manual_download(
-    *, track_title, album_title, artist_name, fp_data,
+    *, track_title, album_title, artist_name, fp_data, cover_url="",
 ):
     """Send a notification summarizing a successful manual download.
 
-    Manual downloads bypass the automated verify-retry loop, so users
-    who've opted into the ``manual_download`` log type get a single
-    line summarizing the track, album, artist, and AcoustID score (if
-    post-download fingerprinting ran).
+    Manual downloads bypass the automated verify-retry loop. The 👤
+    icon distinguishes them at a glance from automated downloads
+    (⬇️ ✅ ⚠️ ❌ 📥). When ``cover_url`` is supplied, Telegram renders
+    it via ``sendPhoto`` and Discord embeds it as a thumbnail.
     """
-    title_line = "Manual Download"
+    title_line = "👤 Manual Download"
     album_disp = album_title or "Unknown Album"
     artist_disp = artist_name or "Unknown Artist"
     score = 0.0
@@ -1730,18 +1731,22 @@ def _notify_manual_download(
             "value": score_str,
             "inline": True,
         })
+    embed = {
+        "title": title_line,
+        "description": (
+            f"{artist_disp} — {album_disp} — {track_title}"
+        ),
+        "color": 0x9B59B6,
+        "fields": fields,
+    }
+    if cover_url:
+        embed["thumbnail"] = cover_url
     try:
         send_notifications(
             "\n".join(lines),
             log_type="manual_download",
-            embed_data={
-                "title": title_line,
-                "description": (
-                    f"{artist_disp} — {album_disp} — {track_title}"
-                ),
-                "color": 0x2ECC71,
-                "fields": fields,
-            },
+            embed_data=embed,
+            photo_url=cover_url or None,
         )
     except Exception as exc:
         # Notifications must never break the manual-download flow;
