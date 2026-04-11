@@ -137,8 +137,11 @@ def tag_opus(file_path, track_info, album_info, cover_data):
                 audio["musicbrainz_artistid"] = [album_info["artist"]["foreignArtistId"]]
             if album_info.get("foreignAlbumId"):
                 audio["musicbrainz_releasegroupid"] = [album_info["foreignAlbumId"]]
-            if release.get("country"):
-                audio["releasecountry"] = [release["country"]]
+            country = release.get("country")
+            if isinstance(country, list):
+                country = country[0] if country else None
+            if country:
+                audio["releasecountry"] = [str(country)]
 
         if track_info.get("foreignRecordingId"):
             audio["musicbrainz_trackid"] = [track_info["foreignRecordingId"]]
@@ -168,6 +171,9 @@ def tag_audio_file(file_path, track_info, album_info, cover_data):
 
 def _add_musicbrainz_tags(audio, track_info, album_info, release):
     """Add MusicBrainz-specific TXXX frames to the audio tags."""
+    country = release.get("country")
+    if isinstance(country, list):
+        country = country[0] if country else None
     mb_fields = [
         (
             track_info.get("foreignRecordingId"),
@@ -186,7 +192,7 @@ def _add_musicbrainz_tags(audio, track_info, album_info, release):
             "MusicBrainz Album Release Group Id",
         ),
         (
-            release.get("country"),
+            country,
             "MusicBrainz Release Country",
         ),
     ]
