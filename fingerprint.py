@@ -79,8 +79,14 @@ def _lookup_acoustid(api_key, duration, fingerprint):
     }
     try:
         _throttle()
-        r = requests.get(ACOUSTID_API_URL, params=params, timeout=15)
-        r.raise_for_status()
+        # Use POST to avoid URL-length issues with long fingerprints.
+        r = requests.post(ACOUSTID_API_URL, data=params, timeout=15)
+        if not r.ok:
+            logger.warning(
+                "AcoustID API returned %d: %s",
+                r.status_code, r.text[:300],
+            )
+            r.raise_for_status()
         data = r.json()
         if data.get("status") != "ok":
             logger.warning(

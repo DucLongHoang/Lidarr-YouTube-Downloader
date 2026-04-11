@@ -313,11 +313,15 @@ def search_youtube_candidates(
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
-    """Download a single YouTube candidate as MP3, trying multiple player clients.
+    """Download a single YouTube candidate, trying multiple player clients.
+
+    The output codec is taken from the ``audio_format`` config key
+    (default ``"mp3"``). The resulting file will have the matching
+    extension (e.g. ``.mp3``, ``.opus``).
 
     Args:
         candidate: Dict with keys url, title, duration, score.
-        output_path: Output file path template (without .mp3 extension).
+        output_path: Output file path template (without extension).
         progress_hook: Optional callback for yt-dlp progress events.
         skip_check: Optional callable; if it returns True, abort and return
             {"skipped": True}.
@@ -327,6 +331,8 @@ def download_youtube_candidate(
     """
     if skip_check and skip_check():
         return {"skipped": True}
+
+    audio_format = load_config().get("audio_format", "mp3")
 
     config = load_config()
     first_client = config.get("yt_player_client", "android")
@@ -348,8 +354,8 @@ def download_youtube_candidate(
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "320",
+                    "preferredcodec": audio_format,
+                    **({"preferredquality": "320"} if audio_format == "mp3" else {}),
                 }
             ],
             "outtmpl": output_path,

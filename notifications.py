@@ -59,10 +59,16 @@ def build_musicbrainz_link(album_mbid):
     )
 
 
-def _truncate_caption(text, limit):
+def _truncate_caption(text, limit, *, md2_safe=False):
     if len(text) <= limit:
         return text
-    # Reserve room for the ellipsis; keep the last full character.
+    if md2_safe:
+        # Cut at the last newline to avoid truncating inside a MarkdownV2
+        # entity such as [text](url), which Telegram rejects as malformed.
+        truncated = text[: limit - 1]
+        last_nl = truncated.rfind("\n")
+        if last_nl > limit // 2:
+            return truncated[:last_nl] + "\n…"
     return text[: limit - 1] + "…"
 
 
@@ -101,13 +107,14 @@ def send_telegram(
     try:
         token = config["telegram_bot_token"]
         chat_id = config["telegram_chat_id"]
+        is_md2 = parse_mode == "MarkdownV2"
         if photo_url:
             url = f"https://api.telegram.org/bot{token}/sendPhoto"
             payload = {
                 "chat_id": chat_id,
                 "photo": photo_url,
                 "caption": _truncate_caption(
-                    message, _TELEGRAM_CAPTION_LIMIT,
+                    message, _TELEGRAM_CAPTION_LIMIT, md2_safe=is_md2,
                 ),
                 "disable_notification": disable_notification,
             }
@@ -116,7 +123,7 @@ def send_telegram(
             payload = {
                 "chat_id": chat_id,
                 "text": _truncate_caption(
-                    message, _TELEGRAM_TEXT_LIMIT,
+                    message, _TELEGRAM_TEXT_LIMIT, md2_safe=is_md2,
                 ),
                 "disable_notification": disable_notification,
             }
