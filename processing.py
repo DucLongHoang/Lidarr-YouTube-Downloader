@@ -468,6 +468,7 @@ def process_album_download(album_id, force=False):
 
 def _filter_tracks(tracks, force, album_path):
     """Filter tracks that need downloading."""
+    audio_ext = load_config().get("audio_format", "mp3")
     tracks_to_download = []
     for t in tracks:
         if not force:
@@ -480,7 +481,7 @@ def _filter_tracks(tracks, force, album_path):
             track_title = t["title"]
             sanitized_track = sanitize_filename(track_title)
             final_file = os.path.join(
-                album_path, f"{track_num:02d} - {sanitized_track}.mp3"
+                album_path, f"{track_num:02d} - {sanitized_track}.{audio_ext}"
             )
             if os.path.exists(final_file):
                 continue
@@ -565,7 +566,8 @@ def _download_candidate_threaded(
         _cleanup_temp_files(attempt_temp)
         return None
 
-    actual_file = attempt_temp + ".mp3"
+    audio_ext = load_config().get("audio_format", "mp3")
+    actual_file = attempt_temp + f".{audio_ext}"
     if not os.path.exists(actual_file):
         logger.warning(
             "Download reported success but file not found: %s",
@@ -620,9 +622,10 @@ def _accept_track_file(
             album_ctx["album_mbid"], album_ctx["artist_mbid"],
         )
 
+    audio_ext = cfg.get("audio_format", "mp3")
     final_file = os.path.join(
         album_path,
-        f"{track_num:02d} - {sanitized_track}.mp3",
+        f"{track_num:02d} - {sanitized_track}.{audio_ext}",
     )
     try:
         file_size = os.path.getsize(src_file)
@@ -1143,7 +1146,7 @@ def _download_tracks(
                     _cleanup_temp_files(fallback_temp)
                     track_state["status"] = "skipped"
                     return
-                fb_file = fallback_temp + ".mp3"
+                fb_file = fallback_temp + f".{load_config().get('audio_format', 'mp3')}"
                 if (
                     fb_result.get("success")
                     and os.path.exists(fb_file)
