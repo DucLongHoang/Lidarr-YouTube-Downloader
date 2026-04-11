@@ -4,11 +4,13 @@ Handles MP3 tagging with MusicBrainz IDs, XML metadata generation for
 Lidarr import, and iTunes API lookups for track lists and album artwork.
 """
 
+import base64
 import logging
 import os
 from xml.sax.saxutils import escape as xml_escape
 
 import requests
+from mutagen.flac import Picture
 from mutagen.id3 import (
     APIC,
     ID3,
@@ -22,6 +24,7 @@ from mutagen.id3 import (
     UFID,
 )
 from mutagen.mp3 import MP3
+from mutagen.oggopus import OggOpus
 
 from lidarr import get_monitored_release
 from utils import sanitize_filename
@@ -105,6 +108,62 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
     except Exception as e:
         logger.warning(f"Failed to tag MP3 {file_path}: {e}")
         return False
+
+
+def tag_opus(file_path, track_info, album_info, cover_data):
+    try:
+        audio = OggOpus(file_path)
+
+        audio["title"] = [track_info["title"]]
+        audio["artist"] = [album_info["artist"]["artistName"]]
+        audio["albumartist"] = [album_info["artist"]["artistName"]]
+        audio["album"] = [album_info["title"]]
+        audio["date"] = [str(album_info.get("releaseDate", "")[:4])]
+
+        try:
+            t_num = int(track_info["trackNumber"])
+            total = album_info.get("trackCount", 0)
+            audio["tracknumber"] = [f"{t_num}/{total}"]
+        except (ValueError, KeyError):
+            pass
+
+        release = get_monitored_release(album_info)
+        if release:
+            if track_info.get("foreignRecordingId"):
+                audio["musicbrainz_trackid"] = [track_info["foreignRecordingId"]]
+            if release.get("foreignReleaseId"):
+                audio["musicbrainz_albumid"] = [release["foreignReleaseId"]]
+            if album_info["artist"].get("foreignArtistId"):
+                audio["musicbrainz_artistid"] = [album_info["artist"]["foreignArtistId"]]
+            if album_info.get("foreignAlbumId"):
+                audio["musicbrainz_releasegroupid"] = [album_info["foreignAlbumId"]]
+            if release.get("country"):
+                audio["releasecountry"] = [release["country"]]
+
+        if track_info.get("foreignRecordingId"):
+            audio["musicbrainz_trackid"] = [track_info["foreignRecordingId"]]
+
+        if cover_data:
+            pic = Picture()
+            pic.type = 3
+            pic.mime = "image/jpeg"
+            pic.data = cover_data
+            audio["metadata_block_picture"] = [
+                base64.b64encode(pic.write()).decode("ascii")
+            ]
+
+        audio.save()
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to tag Opus {file_path}: {e}")
+        return False
+
+
+def tag_audio_file(file_path, track_info, album_info, cover_data):
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".opus":
+        return tag_opus(file_path, track_info, album_info, cover_data)
+    return tag_mp3(file_path, track_info, album_info, cover_data)
 
 
 def _add_musicbrainz_tags(audio, track_info, album_info, release):

@@ -24,9 +24,9 @@ from fingerprint import fingerprint_track, verify_fingerprint
 from lidarr import get_valid_release_id, lidarr_request
 from metadata import (
     create_xml_metadata,
+    tag_audio_file,
     get_itunes_artwork,
     get_itunes_tracks,
-    tag_mp3,
 )
 from notifications import (
     build_musicbrainz_link,
@@ -935,7 +935,7 @@ def _download_tracks(
             track_state["youtube_title"] = dl_result.get(
                 "youtube_title", "",
             )
-            tag_mp3(actual_file, track, album, cover_data)
+            tag_audio_file(actual_file, track, album, cover_data)
 
             cfg = load_config()
             should_verify = (
@@ -1166,7 +1166,7 @@ def _download_tracks(
                     track_state["youtube_title"] = fb_result.get(
                         "youtube_title", "",
                     )
-                    tag_mp3(fb_file, track, album, cover_data)
+                    tag_audio_file(fb_file, track, album, cover_data)
                     file_size, td_id = _accept_track_file(
                         fb_file, track_num, sanitized_track,
                         fb_result, {},
