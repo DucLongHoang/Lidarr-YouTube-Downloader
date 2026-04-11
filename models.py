@@ -545,6 +545,17 @@ def clear_queue():
     conn.commit()
 
 
+def reorder_queue(new_order):
+    """Set queue positions according to the given list of album_ids."""
+    conn = db.get_db()
+    for i, album_id in enumerate(new_order, 1):
+        conn.execute(
+            "UPDATE download_queue SET position = ? WHERE album_id = ?",
+            (i, album_id),
+        )
+    conn.commit()
+
+
 def _reorder_queue(conn):
     """Renumber queue positions sequentially starting at 1."""
     rows = conn.execute(
